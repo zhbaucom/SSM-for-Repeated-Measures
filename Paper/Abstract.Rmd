@@ -1,0 +1,22 @@
+---
+output:
+  pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+- \usepackage{amsmath}
+---
+
+Alzhemer's disease, and other related dementia diseases, are a worsening issue with an acceleration in today's aging population. Longitudinal cognitive assessment of those suffering from dementia offers vital insight into disease progression and allows for assessment of possible disease interventions. Difficulty in modeling such data arises as neuropsychological outcomes often show non-linear and heterogenous patterns of decline from patient to patient. We propose the use of state space models (SSM), specifically a Local Linear Trend (LLT) model, as an alternative to the commonly used linear mixed effect models (LMEM) for longitudinal assessments. The poroposed model includes the estimation of interpretable population linear effects on the outcome, while also allowing for subject-specific non-linearities in cognitive trajectories. To fit the LLT model we use the traditional full likelihood estimation using the Kalman Filter and Kalman Smoother. Because of computational burden and numerical inaccuracies of the full likelihood approach, we compare the use of partioned LLT and a Bayesian LLT estimation procedures. In a fully simulated data analysis, we show that the Bayesian LLT estimation procedure produces unbiased estimates, maintains proper estimate coverage, and has the highest power when compared to the LMEM and other LLT estimation procedures. We go on to show that the Bayesian LLT is unbiased and maintains proper coverage in a real data simulation analysis. Lastly, we use the LLT models to estimate the effect of the APOE e4 allele on cognitive trajectory.

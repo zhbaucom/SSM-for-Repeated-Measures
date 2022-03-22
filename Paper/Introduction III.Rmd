@@ -1,0 +1,50 @@
+---
+output:
+  pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+- \usepackage{amsmath}
+---
+
+# Introduction
+
+According to the World Health Organization, dementia affects around 50 million people in the world today, with 60-70% of those due to Alzheimer's Disease [@who_2020]. The number of those suffering from Alzheimer's disease (AD) and Alzheimer's disease related dementia (ADRD) is only accelerating due to an increase in the aging population. Pathologically, AD is characterized by beta-amyloid neuritic plaques and accumulation of hyperphosphorylated tau (p-tau). These physical changes correspond with episodic memory and expressive language difficulties in the early stages, which then progresses to executive dysfunction, agitation, and an inability to care for one's self in the later stages [@Alz_assoc]. In addition to suffering experienced by those with AD, there is an added physical, emotional, and financial burden on family members and caretakers. 
+
+Much research has been done to understand how and why AD progresses in order to facilitate early detection and diagnosis, which is critical for timely implementation of intervention strategies. In particular, the National Alzheimer's Coordinating Center (NACC) is a publicly available, National Institute on Aging funded, centralized repository of harmonized data from approximately 30 Alzheimer’s Disease Research Centers (ADRC) in the United States [@NACC]. The overarching goal of the NACC is to facilitate research on AD and related diseases. Each ADRC follows a cohort of participants with and without cognitive impairment and approximately annually conducts harmonized cognitive, neuropsychiatric, and neurological evaluations. The ADRCs then deposit the harmonized data to the NACC which is compiled into large amounts of serial neuropsychological measurements. Analyzing these longitudinal outcomes provides vital insight into the disease course and presentation. 
+
+A number of challenges exist when accurately estimating effect modifiers on the neuropsychological outcomes presented in the NACC data. For interpretable results, we often rely on estimating linear effect modifiers. However, participant level cognition data are often non-linear over time and heterogeneous from subject to subject. Many participants may show a similar overall trajectory, but a given participant often shows unique patterns in their cognitive course [@neuroCourse; @lewyBody]. This heterogeneity can arise from unmeasured changes over time in social behavior, treatments, routines, or biologic processes that have an effect on the neuropsychological outcome. 
+
+
+Subject level heterogeneity in cognitive trajectories often goes unaccounted for, as is the case in studying the effect of the APOE e4 allele on cognitive decline. The APOE e4 gene has been known to be associated with Alzheimer's disease [@RABER2004641], but there have been conflicting publications on the effect of the allele on the rate of cognitive decline, as discussed by [@APOErateNLME]. Some studies claim no effect of the e4 allele on cognitive decline, some conclude a faster rate of decline, and a few even indicate a protective effect on the rate of decline. None of these studies seek to control for heterogeneous trajectories, which may contribute to underestimated parameter standard errors, leading to a mis-specified type I error and too many significant tests.
+
+
+To better accommodate data characteristics common to neuropsychological measurements, and to estimate the effect of the APOE e4 allele on cognitive trajectory, we propose the use of a Local Linear Trend model (LLT). The LLT is a class of State Space Model (SSM) and is proposed due to its flexibility in measuring population linear effects while allowing for heterogeneous participant trajectory patterns. The SSM is traditionally a time series technique employed in situations with only a few number of participants and a large series of time points [@harvey_2009; @durbin_koopman_2012]. The SSM framework has been successfully used in numerous fields such as engineering, econometrics, and health sciences. We propose its use in the situation more common to observational cognition data of a large number of participants with only a few repeated measures.
+
+The Linear Mixed Effect Model (LMEM), which has an intuitive comparison to the LLT model, is very common when modeling neuropsychological outcomes [@lmem1; @lmem2; @lmem3; @lmem4]. The LMEM is used due to its simple implementation and interpretation [@randEff], but the LMEM is typically only meant to model low order polynomials of trajectory. The LLT shares an equivalent linear effect interpretation as the LMEM, but with an added flexibility for non-linear changes in participant cognition. Some studies using the LMEM have enforced an AR(1) auto-correlation structure when modeling cognitive data to help counteract heterogeneous non-linearities [@APOErateLME; @tempAuto]. Autocorrelation can be considered the effect of unobserved time-varying variables (UTV) on an outcome. Both the LMEM with an AR(1) autocorrelation and LLT make different assumptions on the behavior of the UTV. The AR(1) holds the strict assumption that the UTV effect will revert to the levels they held at an often arbitrary time of baseline. The LLT allows more flexibility in letting the UTV effect vary freely over time following a random walk process. Even with the added flexibility of the LLT, we show that it still produces accurate effect parameter estimates. Despite the advantages of the SSM, it has not been used for neuropsychological data.
+
+Fitting a model with the traditional full likelihood LLT estimation process on a large data set can lead to extensive computation time. Estimation of the LLT model is an iterative process that includes difficult to avoid matrix inversions which increase computation exponentially as the sample size increases [@durbin_koopman_2012]. To address the computational burden of the brute force full likelihood estimation, we propose and compare a partitioned LLT and a Bayesian LLT. 
+
+The partitioned LLT randomly partitions the participants into a pre-specified number of groups then runs the traditional estimation process independently on each group. Population parameter estimates from each group are combined for more accurate population inference. By pre-specifying the maximum number of participants in a group, computation time increases linearly as the sample size increases.
+
+The Bayesian estimation approach to the LLT model allows us to avoid large matrix inversions and instead relies on a Markov Chain Monte Carlo (MCMC) Gibb's sampling algorithm. Accurate estimation using MCMC is typically more computationally expensive for a small number of participants, but maintains a linear increase in computation, allowing it to quickly outperform the full likelihood method. Along with being the most accurate of the LLT estimation procedures, the Bayesian method can also be useful in identifying model mispecification through visual inspection of the MCMC draws.
+
+To assess model performance we show two simulation analyses comparing the LMEM and our proposed LLTs: 1) on fully simulated data controlling the underlying data generation process and 2) on real data where the underlying data generating process is unknown. 
+
+By controlling the underlying data generation process we are able to demonstrate the LLT effectiveness under correct and incorrect model specification. The fully simulated data analysis show that the LMEMs and LLTs are unbiased, but only the LLTs maintain proper parameter coverage, even when the underlying data generating model follows that of a traditional LMEM. Maintaining proper coverage is essential for correct parameter inference.
+
+The effectiveness of the LLT models is further showcased when we simulate using real data with an unknown underlying data generation process. Utilizing real data from the NACC we are able to show the LLT allows for proper inference of a simulated linear effect on the Animals test outcome. The LMEM with an AR(1) correlation structure fails to maintain proper parameter coverage, yielding poor results consistent with the aforementioned fully simulated analysis. The real data simulation validates that the LLTs intuitive interpretation is more realistic for neuropsycholgical outcomes.
+
+After the proficiency of the proposed LLT is shown, we use the LMEM models and LLT models to estimate the effect of APOE e4 allele on the Animals test outcome over time. The Animals outcome, in which a participant names as many animals as possible within a minute, was chosen due its continual decline throughout dementia disease progression [@ADprogression]. 

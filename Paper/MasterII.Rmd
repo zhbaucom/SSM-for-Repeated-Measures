@@ -1,0 +1,87 @@
+---
+title: This is a title and this is too
+shorttitle: A subtitle goes on another line
+author:
+- name: Author's name
+  affiliation: Author's affiliation
+  email: e-mail\@uni.edu
+  thanks: other info
+- name: Second author's name
+  affiliation: Second author's affiliation
+output: rticles::jasa_article
+abstract: |
+  Put your abstract here. Abstracts are limited to 200 words for
+  regular articles and 100 words for Letters to the Editor. Please no
+  personal pronouns, also please do not use the words ``new'' and/or
+  ``novel'' in the abstract. An article usually includes an abstract, a
+  concise summary of the work covered at length in the main body of the
+  article.
+  
+# The following prints the current date (optional, set to false to remove).
+date: true
+classoption:
+  - preprint # Set to "reprint" to use the reprint style.
+# The reprint style typesets the manuscript with two columns and 10pt font size.  
+#  - NumberedRefs # Uncomment to use numbered references rather than the default author-year style.
+#  - trackchanges # Uncomment to track changes in the manuscript. (Use with preprint option).
+#  - 12pt # Uncomment this to check if you exceeded the 12 page limit. (Use with reprint option).
+#  - TurnOnLineNumbers # Uncomment to add line numbers in reprint. (Use with reprint.)
+
+# When using the preprint style, use the following to add a notice on the first page (optional).
+preprint_notice: "Author-name, JASA"
+bibliography: bibliography.bib
+# The Author-Year style is the default. If you want to use the numeric style,
+# use "jasanum2.bst" instead.
+biblio-style: jasaauthyear2.bst
+---
+
+
+
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+```{r child = "Introduction III.Rmd", cache = TRUE, eval = FALSE}
+
+```
+
+
+```{r child = "MethodsVI.Rmd", cache = TRUE, eval = FALSE}
+
+```
+
+
+```{r child = "DataModel.Rmd", cache = TRUE, eval = FALSE}
+
+```
+
+# Model Validation
+
+
+```{r child = "Full SimulationIII.Rmd", cache = FALSE, eval = FALSE}
+
+
+```
+
+
+```{r child = "Real Data SimulationII.Rmd", cache = TRUE, eval = FALSE}
+
+```
+
+```{r child = "Computation TimeII.Rmd", cache = TRUE, eval = FALSE}
+
+```
+
+
+
+
+```{r child = "NACC AnalysisII.Rmd", cache = TRUE, eval = FALSE}
+
+```
+
+
+```{r child = "Discussion.Rmd", cache = TRUE, eval = FALSE}
+
+```

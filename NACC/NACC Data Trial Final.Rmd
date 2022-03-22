@@ -1,0 +1,296 @@
+---
+title: "Untitled"
+author: "Zach"
+date: "10/15/2020"
+output: html_document
+---
+
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(nlme)
+knitr::opts_chunk$set(
+    # This should allow Rmarkdown to locate the data
+    root.dir = rprojroot::find_rstudio_root_file()
+)
+# load("NACC/Data/RData")
+# rm(list = ls()[ls() != "longdata"])
+
+#Bins for histogram
+base_bins <- function(type) {
+  fun <- switch(type,
+    Sturges = nclass.Sturges,
+    scott = nclass.scott,
+    FD = nclass.FD,
+    stop("Unknown type", call. = FALSE)
+  )
+  
+  function(x) {
+    (max(x) - min(x)) / fun(x)
+  }
+}
+
+#Functions to remove missing code in tests
+m1 <- function(x){
+  ifelse(x %in% c(95, 96, 97, 98, -4), NA, x)
+}
+m2 <- function(x){
+  ifelse(x %in% c(995, 996, 997, 998, -4), NA, x)
+}
+
+
+# Read in NACC data
+longdata1 <- read.csv("NACC/Data2/investigator_nacc49.csv")
+
+longdata <- longdata1 %>%
+  #Select variables needed for this analysis
+  select(
+    NACCID, NACCUDSD, NACCFDYS, VISITYR, BIRTHYR, RACE, EDUC, SEX, NACCAPOE,
+    ANIMALS, NACCALZD
+  ) %>%
+  #Remove missing codes in tests
+  mutate_at(vars(ANIMALS), m1) %>%
+  #Select only those who are demented for each observation
+  group_by(NACCID) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  filter(
+    !is.na(ANIMALS), !is.na(VISITYR), !is.na(BIRTHYR), !is.na(RACE), !is.na(EDUC), !is.na(SEX), !is.na(NACCAPOE)
+  ) %>%
+  arrange(NACCID, NACCFDYS) %>%
+  #Select those who started as normal and transitioned to impairment
+  filter(NACCUDSD[1] == 1 & any(NACCUDSD %in% c(3,4)), any(NACCALZD == 1)) %>%
+  #Derive additional variables
+  mutate(
+    time = NACCFDYS/365.25, 
+    AGE = VISITYR - BIRTHYR,
+    AgeBase = AGE[1],
+    RACEWHITE = ifelse(RACE == 1, 1, 0),
+    APOE = ifelse(NACCAPOE %in% c(2, 4), 1, ifelse(NACCAPOE == 9, NA, 0)),
+    SEX = SEX - 1,
+    APOESEX = APOE * (SEX),
+    Intercept = 1,
+    #Do they have an impairment
+    MCIoD = NACCUDSD %in% c(3,4),
+    FT = min(time[MCIoD]),
+    #All time past initial impairment
+    DEC = time >= FT,
+    #Did the subject ever go to impairment to non-impairment
+    reverter = MCIoD != DEC
+  ) %>%
+  arrange(NACCID, AGE)%>%
+  #Remove all reverters
+  filter(!any(reverter)) %>%
+  #Select all variables that will be used for modeling
+  select(NACCID, time,Intercept, ANIMALS, SEX, EDUC, RACEWHITE, AgeBase, DEC, APOE, APOESEX, NACCUDSD) %>%
+  na.omit() %>%
+  #Create knot for those when they transitioned
+  mutate(DEC = DEC * (time > 0) * (time - min(time[DEC > 0]))) %>%
+  ungroup(NACCID) %>%
+  mutate(A1 = AgeBase, E1 = EDUC, AgeBase = AgeBase - mean(AgeBase), EDUC = EDUC - mean(EDUC))
+
+
+
+
+
+```
+
+```{r}
+longdata %>%
+  select(RACEWHITE, SEX, APOE) %>%
+  group_by() %>%
+  summarise_all(list(mean))
+
+longdata %>%
+  select(ANIMALS,A1, E1) %>%
+  group_by() %>%
+  summarise_all(list(mean = mean, sd = sd))
+
+longdata %>%
+  group_by(NACCID) %>%
+  summarise(Count = n(), TT2 = min(which(NACCUDSD %in% c(3, 4))), MT = max(time)) %>%
+  ungroup() %>%
+  select(-NACCID) %>%
+  summarise_all(list(mean = mean, sd = sd))
+
+sd(table(longdata$NACCID))
+
+
+```
+
+
+
+
+```{r}
+source("functions/BayesKalmUneq2.R") 
+ld2 <- longdata  %>%
+  # mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = (APOE*2-1) * time, APOESEX = (APOESEX *2 -1), EDUC = EDUC * time, AgeBase = AgeBase * time)
+  mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = APOE * time, APOESEX = APOESEX *time, EDUC = EDUC * time, AgeBase = AgeBase * time) 
+
+
+
+ld2$Intercept <- 1L
+Beta.Initial <- coef(lm(ANIMALS ~ (time + SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), data = ld2))
+saveRDS(Beta.Initial[-1], "C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+# 
+# Beta.Initial
+# readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+```
+
+```{r}
+Its <- 2000
+Burn <- floor(Its/2)
+
+bkout <- BayesKalm.Uneq(
+    y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c("SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]) * ld2$time, id = ld2$NACCID, time = ld2$time,
+    Burn = Burn, Its = Its, 
+    Beta.Initial = Beta.Initial[-1], sigma2.beta = 20, 
+    u0 = 0, P0 = 100
+  )
+```
+
+
+```{r}
+Beta.b <- bkout$Beta[,Burn:Its]
+alpha.b <- bkout$mu[,,Burn:Its]
+X.b <- bkout$X
+time.b <- bkout$timeMat
+id.b <- bkout$id
+y.b <- bkout$y
+
+dim(Beta.b)
+dim(X.b)
+
+Preds <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% Beta.b + alpha.b[,x,])
+
+PredVal <- Preds %>%
+  map(function(x){
+    apply(x, 1, function(y){
+      c(mean(y), quantile(y, c(.025, .975)))
+    })
+  })
+
+TimeMats <- map(1:length(PredVal), function(x){
+  data.frame(
+    id = id.b,
+    time = time.b[,x],
+    y = y.b[,x],
+    PredVal = PredVal[[x]][1,],
+    PredLCL = PredVal[[x]][2,],
+    PredUCL = PredVal[[x]][3,]
+  )
+})
+
+CompleteData <- do.call("rbind", TimeMats)
+```
+
+
+
+
+```{r}
+CompleteData %>%
+  filter(id %in% topIds$id[1:6], !is.na(y)) %>%
+  ggplot(aes(x = time, y = y, color = id)) +
+  geom_smooth(color = "black", se = FALSE) +
+  geom_point(size = 2, alpha = .5) +
+  # geom_line(aes(y = PredVal), size = 2, alpha = .5) +
+  # geom_ribbon(aes(ymin = PredLCL, ymax = PredUCL), alpha = .2) +
+  facet_wrap(.~id)+
+  theme(legend.position = "none")
+
+CompleteData %>%
+  filter(id %in% topIds$id[1:6], !is.na(y)) %>%
+  ggplot(aes(x = time, y = y, color = id)) +
+  geom_smooth(color = "black", se = FALSE) +
+  geom_point(size = 2, alpha = .5) +
+  geom_line(aes(y = PredVal), size = 2, alpha = .5) +
+  geom_ribbon(aes(ymin = PredLCL, ymax = PredUCL), alpha = .2) +
+  facet_wrap(.~id)+
+  theme(legend.position = "none")
+```
+
+
+
+
+
+```{r}
+ld2 %>%
+  mutate(
+    SEX = factor(SEX),
+    RACEWHITE = factor(RACEWHITE),
+    APOE = factor(APOE)
+  ) %>%
+  summary()
+
+```
+
+```{r}
+mean(ld2$APOE == 1)
+mean(ld2$SEX == 1)
+mean(ld2$RACEWHITE == 1)
+```
+
+
+
+
+```{r}
+
+ld2 %>%
+  group_by(NACCID) %>%
+  summarise(Count = n()) %>%
+  .[["Count"]] %>%
+  summary()
+
+ld2 %>%
+  group_by(NACCID) %>%
+  summarise(transition = min(time[DEC > 0])) %>%
+  ungroup() %>%
+  .[["transition"]] %>%
+  summary()
+
+
+longdata[,c( "NACCID", "time","Intercept", "ANIMALS", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "A1", "E1")] %>%
+  filter(NACCID %in% infID)
+
+ld2 %>%
+  group_by(NACCID) %>%
+  summarise(sdtime = sd(time)) %>%
+  group_by() %>%
+  summarise(mean(sdtime))
+
+ld2 %>%
+  group_by(NACCID) %>%
+  summarise(A1 = A1[1], E1 = E1[1]) %>%
+  summarise_all(list(sd, mean))
+
+ld2 %>%
+  group_by(NACCID) %>%
+  summarise(ac = cor(ANIMALS[-length(ANIMALS)],ANIMALS[-1])) %>%
+  filter(!is.na(ac)) %>%
+  group_by() %>%
+  summarise(mean(ac))
+
+```
+```{r}
+ld2 %>%
+  mutate(EDUC)
+```
+
+
+
+```{r}
+hist(longdata$NACCMMSE[longdata$NACCMMSE <= 30 & longdata$NACCMMSE>=0])
+
+
+longdata %>%
+  group_by(NACCID) %>%
+  filter(any(NACCMMSE == 30))
+
+
+sd(ld2$ANIMALS)
+```
+
+
+
+
+

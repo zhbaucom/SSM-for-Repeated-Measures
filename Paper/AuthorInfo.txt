@@ -1,0 +1,21 @@
+\author{
+\textbf{Zach Baucom}\\
+\text{Boston University}\\
+\text{Boston, MA 02118}\\
+\texttt{zhbaucom@bu.edu}
+\and 
+\textbf{Yorghos Tripodis}\\
+\text{Boston University}\\
+\text{Boston, MA 02118}\\
+\texttt{yorghos@bu.edu}
+\and
+\textbf{Michael Alosco}\\
+\text{Boston University}\\
+\text{Boston, MA 02118}\\
+\texttt{malosoco@bu.edu}
+\and
+\textbf{Evan Johsnon}\\
+\text{Boston University}\\
+\text{Boston, MA 02118}\\
+\texttt{wej@bu.edu}
+}

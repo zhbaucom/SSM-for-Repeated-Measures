@@ -1,0 +1,34 @@
+---
+output: pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{amsmath}
+- \newcommand\mysim{\mathrel{\stackrel{\makebox[0pt]{\mbox{\normalfont\tiny asym}}}{\sim}}}
+---
+
+
+# Discussion
+
+A Local Linear Trend State Space Model was developed to model cognition trajectory in the aging population. The proposed LLT models offer an intuitive representation of population effects on cognition while also allowing for heterogeneous trajectories from subject to subject. Model performance was validated using a fully simulated data analysis and a real data simulation analysis. The Partitioned and Bayesian LLT models were then used to estimate the linear effect of the APOE e4 allele on the Animals test trajectory using data from the NACC. 
+
+The fully simulated data simulation shows the LLT methods are more robust to model misspecification than the LMEM counterparts. The LLT models maintain 95% coverage when the true underlying data generation process follows that of a traditional LMEM, whereas the LMEM models failed when the the true underlying data generation process followed an LLT. Of the LLT models, the Bayesian LLT was the top performer as it maintained proper coverage, was unbiased, and had the tightest confidence intervals, meaning higher power.
+
+The real data simulation allowed for assessment of the LLT using the actual NACC cognition trajectory data. The partitioned LLT and Bayesian LLT were both unbiased and maintained proper 95% coverage, unlike the commonly used LMEMs. Once again, the Bayesian LLT had less parameter variance and therefore maintains greater power than the partitioned LLT.
+
+Of the LLT estimation processes, the Bayesian LLT stands out. Not only did it meet all the requirements of 1.) 95% coverage, 2.) unbiasedness, and 3.) small confidence interval length, it also did not suffer from issues of non-convergence in test statistic variances. The full likelihood LLT can be prone to numerical inaccuracy and non-convergence in the variance when inverting large matrices as part of the Kalman Filter. The partitioned LLT can help with this issue, but if there is not enough participants in each partitioned group to estimate the number of parameters there will also be a lack of convergence in the variance estimation. There is also an issue of choosing the right partition size which needs to balance group size to number of parameters, matrix inversion complexity, and number of iterations it takes the variance estimation to converge. By using the Bayesian methodology we are able to bypass numerical inaccuracy due to matrix inversion without needing to lose any information by partitioning, which is another reason the Bayesian LLT is preferred over the other LLT estimation strategies.
+
+Lastly, the NACC analysis shows consistent results with what was found in the simulation analyses. The partitioned LLT and Bayesian LLT show wider confidence intervals on the effect estimate of APOE e4 on the Animals test trajectory. Similar to what has been found in a number of studies, the Bayesian LLT effect estimate suggests having an APOE e4 does not lead to a significant impact on cognitive trajectory among those with AD. The results shown indicate that a potential reason for conflicting effects of the APOE e4 allele on cognitive trajectory may be due to improperly accounting for the data structure leading to under estimation of effect standard errors.
+
+The growing aging population emphasizes the need to better understand dementia and, more specifically, Alzheimer's Disease. The local linear trend model, using the Bayesian estimation process, is shown to have many advantages over the commonly used linear mixed effect models. The Bayesian LLT proves to be a promising tool to understand how and why AD progresses in order to facilitate early detection and diagnosis, which is critical for timely implementation of intervention strategies.

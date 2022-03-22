@@ -1,0 +1,107 @@
+---
+title: "NACC SIM"
+author: "Zach"
+date: "12/7/2020"
+output: html_document
+---
+
+
+
+```{r, include = FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(abind)
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+```
+
+
+```{r}
+
+DateFolder <- list.files("Simulations/RealDataSim/") %>%
+  as.Date("%m%d%Y") %>%
+  na.omit() %>%
+  max() %>%
+  format("%m%d%Y") %>%
+  paste("Simulations/RealDataSim/", ., "/",sep = "") 
+
+fidf <- list.files(DateFolder, full.names = T)
+outSim <- map(fidf[grepl("outArray", fidf)], function(x){
+  readRDS(x)
+}) %>%
+  do.call("abind", .)
+
+
+
+Bval <- readRDS("NACC/sd1.RDS")
+```
+
+
+## Coverage
+
+```{r}
+(outSim[,2,] < Bval & outSim[,3,] > Bval) %>%
+  apply(1, mean, na.rm = TRUE) %>%
+  data.frame() %>%
+  t() %>%
+  as_tibble() %>%
+  rename("lme" = V1, "ar1" = V2, "bayes" = V3, "part" = V4) %>%
+  kable() %>%
+  kable_styling()
+  
+```
+
+
+
+## Bias
+
+```{r}
+outSim[,1,] %>%
+  t() %>%
+  as_tibble() %>%
+  rename("lme" = V1, "ar1" = V2, "bayes" = V3, "part" = V4) %>%
+  gather("Method", "Value", lme:part) %>%
+  mutate(Method = factor(Method, levels = c("lme", "ar1", "bayes", "part"))) %>%
+  ggplot(aes(x = Method, y = Value, fill = Method)) + 
+    geom_violin() + 
+    stat_summary(fun=median, geom="point", shape=18, size=5) +
+    geom_hline(yintercept = Bval , color = "red") +
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+
+## CI Length
+
+```{r}
+(outSim[,3,] - outSim[,2,]) %>%
+  t() %>%
+  as_tibble() %>%
+  rename("lme" = V1, "ar1" = V2, "bayes" = V3, "part" = V4) %>%
+  gather("Method", "Value", lme:part) %>%
+  mutate(Method = factor(Method, levels = c("lme", "ar1", "bayes", "part"))) %>%
+  group_by(Method) %>%
+  filter(
+    Value > (quantile(Value, .25, na.rm = TRUE) - 1.5 * IQR(Value, na.rm = TRUE)),
+    Value < (quantile(Value, .75, na.rm = TRUE) + 1.5 * IQR(Value, na.rm = TRUE))
+  ) %>%
+  ungroup()%>%
+  ggplot(aes(x = Method, y = Value, fill = Method)) + 
+    geom_violin() + 
+    stat_summary(fun=median, geom="point", shape=18, size=5) +
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+```
+
+```{r, eval = FALSE}
+cbind(
+  (outSim[3,2,] < Bval & outSim[3,3,] > Bval),
+  (outSim[3,3,] - outSim[3,2,])
+) %>%
+  as_tibble() %>%
+  ggplot(aes(x = V2, fill= as.factor(V1))) + geom_density(alpha = .5)
+```
+
+

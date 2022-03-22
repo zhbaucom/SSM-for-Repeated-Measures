@@ -1,0 +1,341 @@
+---
+output: pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+---
+
+```{r, include = FALSE}
+library(tidyverse)
+library(lme4)
+library(nlme)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+library(abind)
+```
+
+
+```{r, cache = TRUE, include = FALSE}
+
+knitr::opts_chunk$set(
+    # This should allow Rmarkdown to locate the data
+    root.dir = rprojroot::find_rstudio_root_file()
+)
+# load("NACC/Data/RData")
+# rm(list = ls()[ls() != "longdata"])
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+#Bins for histogram
+base_bins <- function(type) {
+  fun <- switch(type,
+    Sturges = nclass.Sturges,
+    scott = nclass.scott,
+    FD = nclass.FD,
+    stop("Unknown type", call. = FALSE)
+  )
+  
+  function(x) {
+    (max(x) - min(x)) / fun(x)
+  }
+}
+
+#Functions to remove missing code in tests
+m1 <- function(x){
+  ifelse(x %in% c(95, 96, 97, 98, -4), NA, x)
+}
+m2 <- function(x){
+  ifelse(x %in% c(995, 996, 997, 998, -4), NA, x)
+}
+
+
+# Read in NACC data
+longdata1 <- read.csv("NACC/Data2/investigator_nacc49.csv")
+
+longdata <- longdata1 %>%
+  #Select variables needed for this analysis
+  select(
+    NACCID, NACCUDSD, NACCFDYS, VISITYR, BIRTHYR, RACE, EDUC, SEX, NACCAPOE,
+    ANIMALS, NACCALZD
+  ) %>%
+  #Remove missing codes in tests
+  mutate_at(vars(ANIMALS), m1) %>%
+  #Select only those who are demented for each observation
+  group_by(NACCID) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  filter(
+    !is.na(ANIMALS), !is.na(VISITYR), !is.na(BIRTHYR), !is.na(RACE), !is.na(EDUC), !is.na(SEX), !is.na(NACCAPOE)
+  ) %>%
+  arrange(NACCID, NACCFDYS) %>%
+  #Select those who started as normal and transitioned to impairment
+  filter(NACCUDSD[1] == 1 & any(NACCUDSD %in% c(3,4)), any(NACCALZD == 1)) %>%
+  #Derive additional variables
+  mutate(
+    time = NACCFDYS/365.25, 
+    AGE = VISITYR - BIRTHYR,
+    AgeBase = AGE[1],
+    RACEWHITE = ifelse(RACE == 1, 1, 0),
+    APOE = ifelse(NACCAPOE %in% c(2, 4), 1, ifelse(NACCAPOE == 9, NA, 0)),
+    SEX = SEX - 1,
+    APOESEX = APOE * (SEX),
+    Intercept = 1,
+    #Do they have an impairment
+    MCIoD = NACCUDSD %in% c(3,4),
+    FT = min(time[MCIoD]),
+    #All time past initial impairment
+    DEC = time >= FT,
+    #Did the subject ever go to impairment to non-impairment
+    reverter = MCIoD != DEC
+  ) %>%
+  arrange(NACCID, AGE)%>%
+  #Remove all reverters
+  filter(!any(reverter)) %>%
+  #Select all variables that will be used for modeling
+  select(NACCID, time,Intercept, ANIMALS, SEX, EDUC, RACEWHITE, AgeBase, DEC, APOE, APOESEX, NACCUDSD) %>%
+  na.omit() %>%
+  #Create knot for those when they transitioned
+  mutate(DEC = DEC * (time > 0) * (time - min(time[DEC > 0]))) %>%
+  ungroup(NACCID) %>%
+  mutate(A1 = AgeBase, E1 = EDUC, AgeBase = AgeBase - mean(AgeBase), EDUC = EDUC - mean(EDUC))
+
+
+knitr::opts_chunk$set(echo = FALSE)
+
+
+```
+
+
+
+
+
+
+```{r, cache = TRUE}
+source("functions/BayesKalmUneq2.R") 
+ld2 <- longdata  %>%
+  # mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = (APOE*2-1) * time, APOESEX = (APOESEX *2 -1), EDUC = EDUC * time, AgeBase = AgeBase * time)
+  mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = APOE * time, APOESEX = APOESEX *time, EDUC = EDUC * time, AgeBase = AgeBase * time) 
+
+
+
+ld2$Intercept <- 1L
+Beta.Initial <- coef(lm(ANIMALS ~ (time + SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), data = ld2))
+
+```
+
+
+
+
+```{r, cache = TRUE, include = FALSE}
+set.seed(1234)
+
+Its <- 2000
+Burn <- floor(Its/2)
+
+bkout <- BayesKalm.Uneq(
+    y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c( "time", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]), id = ld2$NACCID, time = ld2$time,
+    Burn = Burn, Its = Its, 
+    Beta.Initial = Beta.Initial[-1], sigma2.beta = 20, 
+    u0 = 0, P0 = 100
+  )
+
+Beta.b <- bkout$Beta[,Burn:Its]
+alpha.b <- bkout$mu[,,Burn:Its]
+
+BetaMean <- apply(Beta.b, 1, mean)
+alphaMean <- apply(alpha.b, 1:2, mean)
+
+
+
+X.b <- bkout$X
+time.b <- bkout$timeMat
+id.b <- bkout$id
+y.b <- bkout$y
+
+XBetaAll <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% BetaMean)
+
+
+Preds <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% Beta.b + alpha.b[,x,])
+
+PredVal <- Preds %>%
+  map(function(x){
+    apply(x, 1, function(y){
+      c(mean(y), quantile(y, c(.025, .975)))
+    })
+  })
+
+TimeMats <- map(1:length(PredVal), function(x){
+  cbind(data.frame(
+    id = id.b,
+    time = time.b[,x],
+    y = y.b[,x],
+    PredVal = PredVal[[x]][1,],
+    PredLCL = PredVal[[x]][2,],
+    PredUCL = PredVal[[x]][3,],
+    alpha = alphaMean[,x],
+    Xbeta = XBetaAll[[x]]
+  ), X.b[,,x])
+})
+
+
+CompleteData <- do.call("rbind", TimeMats)
+
+```
+
+
+```{r, cache=TRUE, include = FALSE}
+lmeMod <- lme(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), random =  ~1|NACCID, data = ld2, method = "ML", control = lmeControl(opt = "optim"))
+
+
+
+lmeDat <- ld2
+lmeDat$PredVal <- predict(lmeMod, lmeDat)
+```
+
+
+
+```{r, cache=TRUE, include = FALSE}
+lmeARMod <- lme(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), correlation = corAR1(form = ~time), random =  ~1|NACCID, data = ld2, method = "ML")
+
+
+
+lmeARDat <- ld2
+lmeARDat$PredVal <- predict(lmeARMod, lmeARDat)
+```
+
+
+```{r, cache=TRUE, include = FALSE, eval = TRUE}
+source("functions/KalmanRegression2.R")
+source("functions/KalmanRecReform2.R")
+
+
+
+kp <- KalmanReg2(
+  y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c( "time", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]), 
+  id = ld2$NACCID, time = ld2$time, 
+  Beta.Initial = Beta.Initial[-1], a1 = 0, P1 = 1e7, k = 25
+)
+
+
+```
+
+
+
+# NACC Analysis Results
+
+The effect estimates of the linear effect of APOE e4 on the Animals test trajectory are consistent with both simulation studies. The male participant APOE e4 effect estimate confidence intervals are smaller for the random intercept LMEM (0.085) and the AR(1) random intercept LMEM (0.219) than the partitioned LLT (0.360) and the Bayesian LLT (0.280). As the Real Data Simulation suggest, the smaller confidence interval for the LMEMs indicates an improper Type I error. 
+
+
+```{r effectTab}
+
+
+ModEs <- rbind(
+
+intervals(lmeMod)$fixed[c(8,9),] %>%
+  apply(1, function(x){
+    x <- round(x, 3)
+    paste(x[2], " (", x[1], ", ", x[3], ")", sep = "")
+  }),
+
+intervals(lmeARMod)$fixed[c(8,9),] %>%
+  apply(1, function(x){
+    x <- round(x, 3)
+    paste(x[2], " (", x[1], ", ", x[3], ")", sep = "")
+  }),
+  kp$summary[7:8,] %>%
+  apply(1, function(x){
+    x <- round(x, 3)
+    paste(x[1], " (", x[2], ", ", x[3], ")", sep = "")
+  }),  
+rbind(
+  apply(bkout$Beta[,Burn:Its], 1, mean)[c(7, 8)],
+  apply(bkout$Beta[,Burn:Its], 1, quantile, c(.025, .975))[,c(7, 8)]
+) %>%
+  apply(2, function(x){
+    x <- round(x, 3)
+    paste(x[1], " (", x[2], ", ", x[3], ")", sep = "")
+  })
+)
+
+colnames(ModEs) <- c("APOE", "APOE x Sex")
+
+row.names(ModEs) <- c("LMEM", "LMEM AR(1)", "Partition LLT", "Bayesian LLT")
+
+ModEs%>%
+  kbl(longtable = TRUE, escape = FALSE, caption = "Effect estimates for APOE and APOE x Sex interaction") %>%
+  kable_styling()
+
+
+```
+
+```{r,eval = FALSE}
+vardf <- data.frame(
+  draw = 1001:2000,
+  sigeps = bkout$sigma2.eps[1001:2000],
+  sigeta = bkout$sigma2.eta[1001:2000]
+) %>%
+  gather("Param", "Value", sigeps, sigeta) %>%
+  mutate(
+    Param2 = fct_case_when(
+      Param == "sigeps" ~ "$\\sigma^2_{\\epsilon}$",
+      Param == "sigeta" ~ "$\\sigma^2_\\eta$"
+    )
+  )
+
+levels(vardf$Param2) <- TeX(levels(vardf$Param2))
+
+vardf %>%
+  ggplot(aes(x = draw, y = Value, color = Param2)) +
+  geom_point() +
+  facet_wrap(Param2 ~ ., scale = "free_y",
+  labeller=label_parsed) +
+  stat_summary(aes(x = 1001, yintercept = ..y..), fun=mean, geom="hline", color = "black") +
+  theme(legend.position = "none")
+```
+
+
+```{r, eval = FALSE}
+VarData <- data.frame(
+  draw = 1001:2000,
+  sigeps = bkout$sigma2.eps[1001:2000],
+  sigeta = bkout$sigma2.eta[1001:2000]
+) %>%
+  gather("Param", "Value", sigeps, sigeta) %>%
+  group_by(Param) %>%
+  summarise(
+    ParamOut = paste(
+      round(mean(Value), 3), 
+      " (", 
+      paste(round(quantile(Value, c(.025, 0.975)), 3), collapse = ", "), ")", 
+      sep = ""
+    )
+  ) %>%
+  mutate(
+    Param2 = fct_case_when(
+      Param == "sigeps" ~ "$\\sigma^2_{\\epsilon}$",
+      Param == "sigeta" ~ "$\\sigma^2_\\eta$"
+    )
+  )
+
+levels(VarData$Param2) <- TeX(levels(VarData$Param2))
+
+kbl(VarData, row.names = FALSE,  escape = FALSE) %>%
+  kable_styling()
+```
+

@@ -1,0 +1,241 @@
+---
+title: "Untitled"
+output: html_document
+---
+
+# Kalman Filter
+
+Suppose we have the following state space model
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= 
+Z_t
+\begin{bmatrix}
+\alpha_t\\
+\beta
+\end{bmatrix}
++\varepsilon_t, & \varepsilon_t \sim N(0,H_t)\\
+\begin{bmatrix}
+\alpha_t\\
+\beta
+\end{bmatrix}
+& = 
+T_t 
+\begin{bmatrix}
+\alpha_{t-1}\\
+\beta
+\end{bmatrix}
++ R_t\eta_t, & \eta_t \sim N(0,Q_t)\\
+\end{aligned}
+\end{equation}
+
+
+For the Kalman filter we have
+
+
+\begin{equation}
+\begin{aligned}
+v_t &= y_t- Z_ta_t\\
+F_t &= Z_tP_tZ_t' + H_t\\
+K_t &= T_tP_tZ_t'F_t^{-1}\\
+L_t &= T_t-K_tZ_t\\
+a_{t+1} &= T_ta_t + K_tv_t\\
+P_{t+1} & = T_tP_tL_t' + R_tQ_tR_t'
+\end{aligned}
+\end{equation}
+
+
+Let's now suppose we have a more specific model.
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= 
+\begin{bmatrix}
+I_n & 0
+\end{bmatrix}
+\begin{bmatrix}
+\alpha_t\\
+\beta
+\end{bmatrix}
++\varepsilon_t, & \varepsilon_t \sim N(0,\sigma_\varepsilon^2I_n)\\
+\begin{bmatrix}
+\alpha_t\\
+\beta
+\end{bmatrix}
+& = 
+\begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix} 
+\begin{bmatrix}
+\alpha_{t-1}\\
+\beta
+\end{bmatrix}
++\eta_t, & \eta_t \sim N(0,\sigma_\eta^2\begin{bmatrix}I_n & 0\\ 0 & 0\end{bmatrix})\\
+\end{aligned}
+\end{equation}
+
+
+$$
+\begin{equation}
+\begin{aligned}
+P_t &= 
+var(
+\begin{bmatrix}
+\alpha_t\\
+\beta
+\end{bmatrix} | Y_{t-1}) \\
+&= 
+\begin{bmatrix}
+var(\alpha_{t1} | Y_{t-1}) & 0 & 0 & \dots & 0 & cov(\alpha_{t1}, \beta|Y_{t-1})\\
+0 & var(\alpha_{t2} | Y_{t-1}) & 0 & \dots & 0 & cov(\alpha_{t2}, \beta|Y_{t-1})\\
+\vdots & & \ddots & & & \vdots\\
+0 & \dots & & & var(\alpha_{tn}|Y_{t-1}) & cov(\alpha_{tn}, \beta|Y_{t-1})\\
+cov(\alpha_{t1}, \beta|Y_{t-1}) & cov(\alpha_{t2}, \beta|Y_{t-1}) & &\dots & cov(\alpha_{tn}, \beta|Y_{t-1}) & var(\beta|Y_{t-1})
+\end{bmatrix}\\
+& = \begin{bmatrix}
+V_{t\alpha} & V_{t\alpha\beta}\\
+V_{t\beta\alpha} & V_{t\beta}
+\end{bmatrix}
+\end{aligned}
+\end{equation}
+$$
+
+
+Where $V_{t\alpha}$ is the $n\times n$ $var(\alpha_t|Y_{t-1})$ matrix, $V_{t\beta}$ is the $p\times p$ $var(\beta|Y_{t-1})$ matrix, $V_{t\alpha\beta}$ is the $n\times p$ $cov(\alpha_t, \beta|Y_{t-1})$ matrix, and $V_{t\beta\alpha} = V_{t\alpha\beta}'$.
+
+
+
+$$
+\begin{equation}
+\begin{aligned}
+Q_t &= \begin{bmatrix}I_n & 0\\ 0 & 0\end{bmatrix}\\
+R_t &= I_{n+p}\\
+T_t &= 
+\begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}\\
+H_t & = \sigma^2_{\varepsilon} I_n\\
+Z_t & = \begin{bmatrix}I_n & 0\end{bmatrix}
+\end{aligned}
+\end{equation}
+$$
+
+So for the Kalman filter we have,
+
+
+
+
+$$
+\begin{equation}
+\begin{aligned}
+v_t &= y_t- a_t\\
+
+F_t &= \begin{bmatrix}I_n & 0\end{bmatrix} \begin{bmatrix} V_{t\alpha} & V_{t\alpha\beta}\\ V_{t\beta\alpha} & V_{t\beta} \end{bmatrix}\begin{bmatrix}I_n \\ 0\end{bmatrix} + \sigma^2_\varepsilon I_n \\
+& = V_{t\alpha} + \sigma^2_\varepsilon I_n\\
+
+K_t &= \begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}
+\begin{bmatrix}
+V_{t\alpha} & V_{t\alpha\beta}\\
+V_{t\beta\alpha} & V_{t\beta}
+\end{bmatrix}
+\begin{bmatrix}I_n \\ 0\end{bmatrix} 
+(V_{t\alpha}+ \sigma^2_\varepsilon I_n)^{-1}\\
+
+&= \begin{bmatrix} V_{t\alpha} + XV_{t\beta\alpha} & V_{t\alpha\beta} + XV_{t\beta} \\ V_{t\beta\alpha} & V_{t\beta}\end{bmatrix}
+\begin{bmatrix}I_n \\ 0\end{bmatrix} 
+(V_{t\alpha}+ \sigma^2_\varepsilon I_n)^{-1}\\
+
+& =  \begin{bmatrix} V_{t\alpha} + XV_{t\beta\alpha} \\ V_{t\beta\alpha}\end{bmatrix}(V_{t\alpha}+ \sigma^2_\varepsilon I_n)^{-1}\\
+
+L_t &= \begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}-\begin{bmatrix} V_{t\alpha} + XV_{t\beta\alpha} \\ V_{t\beta\alpha}\end{bmatrix}(V_{t\alpha}+ \sigma^2_\varepsilon I_n)^{-1}\begin{bmatrix}I_n & 0\end{bmatrix}\\
+
+& = \begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}-\begin{bmatrix} V_{t\alpha} + XV_{t\beta\alpha} \\ V_{t\beta\alpha}\end{bmatrix}
+\begin{bmatrix}(V_{t\alpha}+ \sigma^2_\varepsilon I_n)^{-1} & 0\end{bmatrix}\\
+
+& = \begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}-\begin{bmatrix} (V_{t\alpha} + XV_{t\beta\alpha} ) F^{-1} & 0\\ V_{t\beta\alpha} F^{-1} & 0\end{bmatrix}\\
+
+& = \begin{bmatrix} I_n- (V_{t\alpha} + XV_{t\beta\alpha} ) F^{-1} & X\\ -V_{t\beta\alpha} F^{-1} & I_p\end{bmatrix}\\
+
+a_{t+1} &= T_ta_t + K_tv_t\\
+
+P_{t+1} & = \begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}
+\begin{bmatrix}
+V_{t\alpha} & V_{t\alpha\beta}\\
+V_{t\beta\alpha} & V_{t\beta}
+\end{bmatrix}
+\begin{bmatrix} I_n- (V_{t\alpha} + XV_{t\beta\alpha} ) F^{-1} & X\\ -V_{t\beta\alpha} F^{-1} & I_p\end{bmatrix}' + \sigma^2_\varepsilon\begin{bmatrix}I_{n}& 0\\ 0 & 0\end{bmatrix}\\
+
+&= \begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}
+\begin{bmatrix}
+V_{t\alpha} & V_{t\alpha\beta}\\
+V_{t\beta\alpha} & V_{t\beta}
+\end{bmatrix}
+\begin{bmatrix} I_n- F^{-1}(V_{t\alpha} + V_{t\alpha\beta}X' )  & -F^{-1}V_{t\alpha\beta} \\ X' & I_p\end{bmatrix}
++ \sigma^2_\varepsilon\begin{bmatrix}I_{n}& 0\\ 0 & 0\end{bmatrix}\\
+
+&= \begin{bmatrix}
+V_{t\alpha} + X V_{t\beta\alpha} & V_{t\alpha\beta} + XV_{t\beta}\\
+V_{t\beta\alpha} & V_{t\beta}
+\end{bmatrix}
+\begin{bmatrix} I_n- F^{-1}(V_{t\alpha} + V_{t\alpha\beta}X' )  & -F^{-1}V_{t\alpha\beta} \\ X' & I_p\end{bmatrix}
++ \sigma^2_\varepsilon\begin{bmatrix}I_{n}& 0\\ 0 & 0\end{bmatrix}\\
+
+
+
+
+&= \begin{bmatrix}
+(V_{t\alpha} + X V_{t\beta\alpha})(I_n- F^{-1}(V_{t\alpha} + V_{t\alpha\beta}X' )) +(V_{t\alpha\beta} + XV_{t\beta}) X'  
+
+& -(V_{t\alpha} + X V_{t\beta\alpha}) F^{-1}V_{t\alpha\beta}+ (V_{t\alpha\beta} + XV_{t\beta})\\
+
+V_{t\beta\alpha} ( I_n-  F^{-1}(V_{t\alpha} + XV_{t\beta\alpha} )) + V_{t\beta} X' 
+
+& -V_{t\beta\alpha} F^{-1}V_{t\alpha\beta} + V_{t\beta}
+\end{bmatrix}
+
++ \sigma^2_\varepsilon\begin{bmatrix}I_{n}& 0\\ 0 & 0\end{bmatrix}\\
+
+V_{(t+1)\beta} &= -V_{t\beta\alpha} F^{-1}V_{t\alpha\beta} + V_{t\beta}\\
+V_{(t+1)\alpha\beta} & =  -(V_{t\alpha} + X V_{t\beta\alpha}) F^{-1}V_{t\alpha\beta}+ (V_{t\alpha\beta} + XV_{t\beta}) \\
+ & =  V_{t\alpha\beta} + XV_{t\beta}-V_{t\alpha}F^{-1}V_{t\alpha\beta} - X V_{t\beta\alpha}F^{-1}V_{t\alpha\beta}\\
+ 
+ 
+V_{(t+1)\alpha} &= (V_{t\alpha} + X V_{t\beta\alpha})(I_n- F^{-1}(V_{t\alpha} + V_{t\alpha\beta}X' )) +(V_{t\alpha\beta} + XV_{t\beta}) X' + \sigma^2_\varepsilon I_n\\
+
+&= V_{t\alpha} + X V_{t\beta\alpha}-( V_{t\alpha} + X V_{t\beta\alpha})(F^{-1}V_{t\alpha} + F^{-1}V_{t\alpha\beta}X') +V_{t\alpha\beta}X' + XV_{t\beta} X' + \sigma^2_\varepsilon I_n\\
+
+&= V_{t\alpha} + X V_{t\beta\alpha}-V_{t\alpha}F^{-1}V_{t\alpha} - V_{t\alpha}F^{-1}V_{t\alpha\beta}X' -X V_{t\beta\alpha}F^{-1}V_{t\alpha}- X V_{t\beta\alpha}F^{-1}V_{t\alpha\beta}X'
+
++V_{t\alpha\beta}X' + XV_{t\beta} X' + \sigma^2_\varepsilon I_n\\
+\end{aligned}
+\end{equation}
+$$
+
+
+
+
+
+

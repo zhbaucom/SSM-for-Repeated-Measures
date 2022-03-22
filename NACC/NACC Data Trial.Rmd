@@ -1,0 +1,646 @@
+---
+title: "Untitled"
+author: "Zach"
+date: "10/15/2020"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(lme4)
+library(nlme)
+knitr::opts_chunk$set(
+    # This should allow Rmarkdown to locate the data
+    root.dir = rprojroot::find_rstudio_root_file()
+)
+# load("NACC/Data/RData")
+# rm(list = ls()[ls() != "longdata"])
+
+#Bins for histogram
+base_bins <- function(type) {
+  fun <- switch(type,
+    Sturges = nclass.Sturges,
+    scott = nclass.scott,
+    FD = nclass.FD,
+    stop("Unknown type", call. = FALSE)
+  )
+  
+  function(x) {
+    (max(x) - min(x)) / fun(x)
+  }
+}
+
+#Functions to remove missing code in tests
+m1 <- function(x){
+  ifelse(x %in% c(95, 96, 97, 98, -4), NA, x)
+}
+m2 <- function(x){
+  ifelse(x %in% c(995, 996, 997, 998, -4), NA, x)
+}
+
+
+# Read in NACC data
+longdata1 <- read.csv("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/Data2/investigator_nacc49.csv")
+
+longdata <- longdata1 %>%
+  #Select variables needed for this analysis
+  select(
+    NACCID, NACCUDSD, NACCFDYS, VISITYR, BIRTHYR, RACE, EDUC, SEX, NACCAPOE,
+    LOGIMEM, MEMUNITS, ANIMALS, VEG, BOSTON, TRAILA, TRAILB, DIGIF, DIGIB, WAIS
+  ) %>%
+  #Remove missing codes in tests
+  mutate_at(vars(LOGIMEM, MEMUNITS, DIGIF, DIGIB, ANIMALS, VEG, WAIS, BOSTON), m1) %>%
+  mutate_at(vars(TRAILA, TRAILB), m2) %>%
+  #Select only those who are demented for each observation
+  group_by(NACCID) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  #Select those who started as normal and transitioned to impairment
+  filter(NACCUDSD[1] == 1 & any(NACCUDSD %in% c(3,4))) %>%
+  #Derive additional variables
+  mutate(
+    time = NACCFDYS/365.25, 
+    AGE = VISITYR - BIRTHYR,
+    RACEWHITE = ifelse(RACE == 1, 1, 0),
+    APOE = ifelse(NACCAPOE %in% c(2, 4), 1, ifelse(NACCAPOE == 9, NA, 0)),
+    Intercept = 1,
+    #Do they have an impairment
+    MCIoD = NACCUDSD %in% c(3,4),
+    FT = min(time[MCIoD]),
+    #All time past initial impairment
+    DEC = time >= FT,
+    #Did the subject ever go to impairment to non-impairment
+    reverter = MCIoD != DEC
+  ) %>%
+  arrange(NACCID, AGE) %>%
+  mutate(AgeBase = AGE[1]) %>%
+  #Remove all reverters
+  filter(!any(reverter)) %>%
+  ungroup(NACCID) %>%
+  mutate(AgeBase = AgeBase - mean(AgeBase), EDUC = EDUC - mean(EDUC))%>%
+  mutate(SEX = 2*(SEX - 1)-1, RACEWHITE = RACEWHITE * 2 -1, DEC = DEC*2-1, APOE = APOE*2-1)
+```
+
+
+
+```{r}
+ld24 <- longdata %>%
+  group_by(NACCID) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  filter(NACCUDSD[1] == 1 & NACCUDSD[length(NACCUDSD)] %in% c(3,4)) %>%
+  arrange(NACCID) %>%
+  ungroup()
+
+ld24 %>%
+  arrange(NACCID,NACCFDYS) %>%
+  select(NACCID, NACCUDSD, NACCVNUM, NACCFDYS) %>%
+  group_by(NACCID) %>%
+  summarise(Count = n())
+
+ld24 %>%
+  # filter(NACCUDSD == 4) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  select(NACCID, NACCUDSD, NACCVNUM, NACCFDYS) %>%
+  group_by(NACCID) %>%
+  summarise(Count = n()) %>%
+  filter(Count != 1)  %>%
+  .["Count"] %>%
+  sum()
+
+ld24 %>%
+  # filter(NACCUDSD == 4) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  select(NACCID, NACCUDSD, NACCVNUM, NACCFDYS) %>%
+  group_by(NACCUDSD) %>%
+  summarise(Count = n()) %>%
+  filter(Count != 1) 
+
+
+
+
+ld2   %>%
+  group_by(NACCID) %>%
+  summarise(Count = n())
+
+
+longdata %>%
+  # filter(NACCUDSD == 4) %>%
+  filter(!is.na(ANIMALS)) %>%
+  group_by(NACCID) %>%
+  summarise(Count = n()) %>%
+  filter(Count > 1) %>%
+  arrange(desc(Count)) %>%
+  .["Count"] %>%
+  sum()
+
+longdata %>%
+  filter(!is.na(ANIMALS)) %>%
+  select(NACCID, time, ANIMALS, NACCUDSD, DEC, reverter) %>%
+  group_by(NACCID) %>%
+  summarise(reverter = any(reverter), Count = n()) %>%
+  filter(Count > 1) %>%
+  .[["reverter"]] %>%
+  sum()
+
+
+
+longdata %>%
+  filter(!is.na(ANIMALS)) %>%
+  select(NACCID, time, ANIMALS, NACCUDSD, DEC, reverter) %>%
+  group_by(NACCID) %>%
+  mutate(Count = length(NACCID)) %>%
+  filter(!any(reverter), Count > 1) %>%
+  summarise(Count = n()) %>%
+  .[["Count"]] 
+  quantile(c(0, .025, .25, .5, .75, .975, 1))
+```
+
+
+
+
+
+
+
+```{r}
+outd <- longdata %>%
+  gather("Test", "Score", LOGIMEM, MEMUNITS, ANIMALS, VEG, BOSTON, TRAILA, TRAILB, DIGIF, DIGIB, WAIS) %>%
+  mutate(Intercept = 1) %>%
+  # mutate(
+  #   Score = ifelse(
+  #     ((Test %in% c("LOGIMEM", "MEMUNITS", "DIGIF", "DIGIB", "ANIMALS", "VEG", "WAIS", "BOSTON")) & ( Score %in% c(95, 96, 97, 98, -4))), NA,
+  #     ifelse(
+  #       ((Test %in% c("TRAILA", "TRAILB")) & (Score %in% c(995, 996, 997, 998, -4)) ), NA, Score
+  #     )
+  #   )
+  # ) %>%
+  arrange(NACCID, time) %>%
+  group_by(Test) %>%
+  nest() %>%
+  mutate(
+    mod = map(data, function(x){
+      form <- Score ~ (Intercept + SEX + EDUC + RACEWHITE + AgeBase + APOE) : time
+      
+      mod <-tryCatch(
+        error = function(cnd) NA,
+        
+        lme(form, random = ~1|NACCID, method = "ML", na.action = na.omit, data = x)
+      )
+      mod
+    }),
+    AutoCorr = map_dbl(mod, function(x){
+      
+        if(!is.na(mod))ACF(x)$ACF[2]else NA
+    })
+  )
+
+outd %>%
+  select(Test, AutoCorr)
+
+pmap(list(outd$data, outd$Test, outd$AutoCorr), function(x, y, z){
+  ggplot(data = x, aes(x = Score)) + geom_histogram(binwidth = base_bins("Sturges")) + ggtitle(paste(y, ": ", round(z, 3), sep = ""))
+})
+
+
+```
+
+
+
+```{r}
+longdata %>%
+  group_by(NACCID) %>%
+  summarise(Count = n()) %>%
+  group_by(Count) %>%
+  summarise(NNUM = n())
+  
+ld2   %>%
+  group_by(NACCID) %>%
+  summarise(Count = n()) %>%
+  group_by(Count) %>%
+  summarise(NNUM = n()) 
+```
+
+```{r}
+table(longdata$NACCUDSD)
+#longdata$NACCVNUM
+#Only alzhe
+#controls
+#mci
+table(longdata$ANIMALS)
+```
+
+
+```{r}
+source("functions/BayesKalmUneq2.R") 
+ld2 <- longdata[,c( "NACCID", "time","Intercept", "ANIMALS", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE")] %>%
+  arrange(NACCID, time) 
+ld2 <- na.omit(ld2)
+ld2 <- ld2 %>%
+  group_by(NACCID) %>%
+  mutate(num = length(NACCID)) %>%
+  filter(num > 1)
+
+
+
+ld2$Intercept <- 1L
+Beta.Initial <- coef(lm(ANIMALS ~ (SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE) : time, data = ld2))
+saveRDS(Beta.Initial[-1], "C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+# modInit <- lmer(ANIMALS ~ (SEX + EDUC + RACEWHITE + AgeBase + APOE) : time + (1|NACCID), data = ld2)
+# lmeCIs <- confint(modInit)
+# lmeEs <- modInit@beta
+# 
+# lmeTab <- cbind(Estimate = lmeEs[2:length(lmeEs)], lmeCIs[4:nrow(lmeCIs),])
+
+
+readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+Beta.Initial
+```
+
+
+
+
+
+
+```{r}
+length(unique(ld2$NACCID))
+ld2 %>%
+  filter(!is.na(ANIMALS)) %>%
+  group_by(NACCID) %>%
+  mutate(Count = length(NACCID)) %>%
+  summarise(Count = n()) %>%
+  .[["Count"]] %>%
+  # mean()
+  quantile(c(0, .025, .25, .5, .75, .975, 1))
+ld2 %>%
+  mutate(
+    SEX = factor(SEX),
+    RACEWHITE = factor(RACEWHITE),
+    APOE = factor(APOE)
+  ) %>%
+  summary()
+
+
+longdata$SEX
+```
+
+
+
+
+```{r}
+Its <- 2000
+Burn <- floor(Its/2)
+
+bkout <- BayesKalm.Uneq(
+    y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c("SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE")]) * ld2$time, id = ld2$NACCID, time = ld2$time,
+    Burn = Burn, Its = Its, 
+    Beta.Initial = Beta.Initial[-1], sigma2.beta = 20, 
+    u0 = 0, P0 = 100
+  )
+```
+
+```{r}
+dim(bkout$X)
+dim(bkout$Beta)
+dim(bkout$mu)
+```
+
+
+```{r}
+Beta.b <- bkout$Beta[,Burn:Its]
+alpha.b <- bkout$mu[,,Burn:Its]
+X.b <- bkout$X
+time.b <- bkout$timeMat
+id.b <- bkout$id
+y.b <- bkout$y
+
+dim(Beta.b)
+dim(X.b)
+
+Preds <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% Beta.b + alpha.b[,x,])
+
+PredVal <- Preds %>%
+  map(function(x){
+    apply(x, 1, function(y){
+      c(mean(y), quantile(y, c(.025, .975)))
+    })
+  })
+
+TimeMats <- map(1:length(PredVal), function(x){
+  data.frame(
+    id = id.b,
+    time = time.b[,x],
+    y = y.b[,x],
+    PredVal = PredVal[[x]][1,],
+    PredLCL = PredVal[[x]][2,],
+    PredUCL = PredVal[[x]][3,]
+  )
+})
+
+CompleteData <- do.call("rbind", TimeMats)
+
+```
+
+```{r}
+
+CompleteData %>%
+  filter(id %in% topIds$id[1:6], !is.na(y)) %>%
+  ggplot(aes(x = time, y = y, color = id)) +
+  geom_smooth(color = "black", se = FALSE) +
+  geom_point(size = 2, alpha = .5) +
+  # geom_line(aes(y = PredVal), size = 2, alpha = .5) +
+  # geom_ribbon(aes(ymin = PredLCL, ymax = PredUCL), alpha = .2) +
+  facet_wrap(.~id)+
+  theme(legend.position = "none")
+
+CompleteData %>%
+  filter(id %in% topIds$id[1:6], !is.na(y)) %>%
+  ggplot(aes(x = time, y = y, color = id)) +
+  geom_smooth(color = "black", se = FALSE) +
+  geom_point(size = 2, alpha = .5) +
+  geom_line(aes(y = PredVal), size = 2, alpha = .5) +
+  geom_ribbon(aes(ymin = PredLCL, ymax = PredUCL), alpha = .2) +
+  facet_wrap(.~id)+
+  theme(legend.position = "none")
+
+```
+
+
+```{r}
+topIds <- CompleteData %>%
+  filter(!is.na(y)) %>%
+  group_by(id) %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count))
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+
+source("functions/BayesKalmUneq2.R") 
+ld2 <- longdata[,c( "NACCID", "time","Intercept", "ANIMALS", "SEX", "EDUC", "RACEWHITE", "AgeBase", "APOE")] %>%
+  arrange(NACCID, time) 
+ld2 <- na.omit(ld2)
+
+uid <- unique(ld2$NACCID)
+sid <- sample(uid, floor(length(uid)/2))
+
+
+
+ld2$BinInt <- ld2$NACCID %in% sid
+ld2$Red <- runif(nrow(ld2))
+ld2$A2 <- 10 * ld2$BinInt * ld2$time + ld2$ANIMALS
+
+
+ld2 <- ld2 %>%
+  group_by(NACCID) %>%
+  mutate(num = length(NACCID)) %>%
+  filter(num > 1) 
+ld2$Intercept <- 1L
+Beta.Initial <- coef(lm(A2 ~ ( SEX + EDUC + RACEWHITE + AgeBase + APOE + BinInt) : time, data = ld2))
+saveRDS(Beta.Initial[-1], "NACC/B.RDS")
+modInit <- lmer(A2 ~ (SEX + EDUC + RACEWHITE + AgeBase + APOE + BinInt) : time + (1|NACCID), data = ld2)
+lmeCIs <- confint(modInit)
+lmeEs <- modInit@beta
+
+lmeTab <- cbind(Estimate = lmeEs[2:length(lmeEs)], lmeCIs[4:nrow(lmeCIs),])
+```
+
+```{r}
+Its <- 2000
+Burn <- floor(Its/2)
+
+bkout <- BayesKalm.Uneq(
+    y.long = ld2$A2, X.long = as.matrix(ld2[,c("SEX", "EDUC", "RACEWHITE", "AgeBase", "APOE", "BinInt")]) * ld2$time, id = ld2$NACCID, time = ld2$time,
+    Burn = Burn, Its = Its, 
+    Beta.Initial = Beta.Initial[-1], sigma2.beta = 20, 
+    u0 = 0, P0 = 100
+  )
+```
+
+
+```{r}
+apply(bkout$Beta, 1, mean, na.rm = TRUE)
+apply(bkout$Beta, 1, quantile, c(.025, 0.975), na.rm = TRUE)
+```
+
+
+
+
+
+```{r}
+source("functions/KalmanRegression2.R")
+source("functions/KalmanRecReform2.R")
+```
+
+
+```{r}
+print_factors <- function(x) {
+  print(paste("The factors of",x,"are:"))
+  for(i in 1:x) {
+    if((x %% i) == 0) {
+      print(i)
+    }
+  }
+}
+print_factors(17228)
+17228/118
+```
+
+
+
+
+```{r}
+ld2$Intercept <- 1
+Beta.Initial <- coef(lm(ANIMALS ~ (SEX + EDUC + RACEWHITE + AgeBase) : time, data = ld2))[-1]
+
+
+okout <- KalmanReg2(
+  y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c("SEX", "EDUC", "RACEWHITE", "AgeBase")]) * ld2$time, 
+  id = ld2$NACCID, time = ld2$time, 
+  Beta.Initial = Beta.Initial, a1 = 0, P1 = 1e7, k = 146
+)
+
+
+
+okout$summary[4,]
+```
+
+
+```{r}
+length(unique(ld2$NACCID))
+```
+
+
+```{r}
+
+
+bkout$Beta %>%
+  t() %>%
+  data.frame() %>%
+  set_names(paste("B", 1:ncol(.), sep = "")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Beta", "Value", -ind) %>%
+  # mutate(Z = B[as.numeric(substr(Beta, 2, nchar(Beta)))]) %>%
+  ggplot(aes(x = ind, y = Value, color = Beta)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Beta, scales = "free_y") + 
+  # geom_hline(aes(yintercept = Z), col = "red") +
+  geom_vline(aes(xintercept = Burn)) +
+  theme(legend.position = "none")
+```
+
+
+```{r}
+cbind(
+  Estimate = rowMeans(bkout$Beta[,Burn:Its]),
+  apply(bkout$Beta[,Burn:Its], 1, quantile, c(.025, 0.975)) %>%
+    t()
+) 
+lmeTab
+```
+
+```{r}
+var(ld2$ANIMALS)
+```
+
+
+```{r}
+data.frame(bkout$sigma2.eps, bkout$sigma2.eta) %>%
+  set_names(c("var.eps", "var.eta")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Variance", "Value", var.eps, var.eta) %>%
+  # mutate(Z = case_when(
+  #   Variance == "var.eps" ~ sigeps,
+  #   Variance == "var.eta" ~ sigeta
+  # )) %>%
+  ggplot(aes(x = ind, y = Value, color = Variance)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Variance, scales = "free_y") + 
+  # geom_hline(aes(yintercept = Z), col = "red") +
+  geom_vline(aes(xintercept = Burn)) +
+  theme(legend.position = "none")
+```
+
+```{r}
+ld2 %>%
+  group_by(NACCID) %>%
+  summarise(tav = var(TRAILA)) %>%
+  group_by() %>%
+  summarise(mean(tav))
+```
+
+
+
+```{r}
+source("functions/KalmanRegression2.R")
+source("functions/KalmanRecReform2.R")
+```
+
+
+```{r}
+
+
+length(unique(ld2$NACCID))
+
+print_factors <- function(x) {
+  print(paste("The factors of",x,"are:"))
+  for(i in 1:x) {
+    if((x %% i) == 0) {
+      print(i)
+    }
+  }
+}
+print_factors(5215)
+5215/35
+```
+
+
+
+
+```{r}
+
+okout <- KalmanReg2(
+  y.long = ld2$A2, X.long = as.matrix(ld2[,c("SEX", "EDUC", "RACEWHITE", "AgeBase", "APOE", "BinInt")]) * ld2$time, 
+  id = ld2$NACCID, time = ld2$time, 
+  Beta.Initial = Beta.Initial[-1], a1 = 0, P1 = 1e7, k = 149
+)
+
+
+
+okout$summary
+
+
+apply(bkout$Beta, 1, quantile, c(.5, .025, .975)) %>% t()
+apply(bkout$Beta, 1, mean) %>% t()
+```
+
+
+
+
+
+```{r}
+
+allout <- rbind(
+  cbind(MASS::mvrnorm(n = 100, c(.25, .25), diag(1, 2, 2)), Ind = 1),
+  cbind(MASS::mvrnorm(n = 100, c(-.25, -.25), diag(1, 2, 2)), Ind = 0)
+) %>%
+  as_tibble() %>%
+  group_by() %>%
+  nest() %>%
+  mutate(
+    modelG = map(data, ~glm(Ind ~ V1 + V2, family = "binomial", data = .x)),
+    modelL = map(data, ~lm(Ind ~ V1 + V2, data = .x)),
+    SIG = map(modelG, function(x){
+      modCoef <- coef(x)
+      list(
+        Int = -modCoef[1]/modCoef[3],
+        Slope = -modCoef[2]/modCoef[3]
+      )
+    }),
+        SIL = map(modelL, function(x){
+      modCoef <- coef(x)
+      list(
+        Int = (.5-modCoef[1])/modCoef[3],
+        Slope = -modCoef[2]/modCoef[3]
+      )
+    }),
+    PlotG = map2(data, SIG, function(x, y){
+      ggplot(x, aes(x = V1, y = V2, color = factor(Ind))) + 
+        geom_point() +
+        geom_abline(slope = y$Slope, intercept = y$Int, "black")
+    }),
+    PlotL = map2(data, SIL, function(x, y){
+      ggplot(x, aes(x = V1, y = V2, color = factor(Ind))) + 
+        geom_point() +
+        geom_abline(slope = y$Slope, intercept = y$Int, "black")
+    }),
+    PlotGL = pmap(list(data, SIG,SIL), function(x, y, z){
+      ggplot(x, aes(x = V1, y = V2, color = factor(Ind))) + 
+        geom_point() +
+        geom_abline(slope = y$Slope, intercept = y$Int, "black") +
+        geom_abline(slope = z$Slope, intercept = z$Int, "red")
+      
+    })
+               
+  )
+
+
+allout$PlotGL[[1]]
+
+```
+
+
+
+
+
+
+
+
+

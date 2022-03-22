@@ -1,0 +1,905 @@
+---
+title: "Drift Centered Baeysian Kalman Filter with Gibbs Sampling"
+author: "Zach"
+date: "6/23/2020"
+output:
+  html_document:
+    code_folding: show
+    toc: true
+    toc_float: true
+    toc_depth: 2
+---
+
+
+# The Model
+
+Let $y_t$ be a $n \times 1$ vector where the $i^{th}$ entry is the $i^{th}$ subject's $t^{th}$ measurement of some outcome. Then the matrix $X_t$ is a $n \times p$ matrix where $[X_t]_{ij}$ is the $j^{th}$ covariate of the $i^{th}$ subject at time $t$. Our aim is to estimate $\beta$ from the model,
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= \mu_t + X_t \beta +\varepsilon_t\\
+\mu_t &= \mu_{t-1} + \eta_t
+\end{aligned}
+\end{equation}
+
+where $\varepsilon_t \sim N(0, \sigma^2_\varepsilon I_n)$, $\eta_t \sim N(0, \sigma^2_\eta I_n)$, and $\mu_0\sim N(u_0, P_0)$ for some vector $u_0$ and some positive valued diagnol matrix $P_0$.
+
+We also have the following prior distributions,
+
+
+\begin{equation}
+\begin{aligned}
+\beta &\sim N(\theta, \sigma^2_\beta)\\
+\sigma^2_\eta &\sim IG(a_0/2, b_0/2)\\
+\sigma^2_\varepsilon &\sim IG(c_0/2,d_0/2)
+\end{aligned}
+\end{equation}
+
+
+The Kalman Filter can be used to jointly estimate $\mu_t$ and $\beta$, however there is a computational advantage estimating $\mu_t|\beta$ then $\beta|\mu$ through a Gibbs sampling approach.
+
+# Posterior Distributions
+
+For notational ease, let $Y = [y_1, ..., y_T]$, $\mu = [\mu_1, ..., \mu_T]$, $X = [X_1, ..., X_T]$
+
+## $\mu|Y, X, \beta, \sigma^2_\eta, \sigma^2_\varepsilon$
+
+(This is a modification of Shumway and Stoeffer pg 368)
+
+The conditional distribution $\mu|Y, X, \beta, \sigma^2_\eta, \sigma^2_\varepsilon$ can be estimated directly from the the Kalman Filter. By conditioning on $X_t$ and $\beta$ each $[y_t]_i$ is independent at each time point $t$. Thus we can run the Kalman Filter with $y^*_t = y_t - X_t \beta$ as the outcome in the model,
+
+\begin{equation}
+\begin{aligned}
+y^*_t &= \mu_t +\varepsilon_t\\
+\mu_t &= \mu_{t-1} + \eta_t
+\end{aligned}
+\end{equation}
+
+Because the $y^*_t$ are independent it is equivalent to estimating the $[\mu_t]_i$ individually resulting in a computational efficient Kalman Filter where,
+
+
+
+
+\begin{equation}
+\begin{aligned}
+u_t^{t-1} = u_{t-1}^{t-1}, \ \ \ & P_t^{t-1} = P_{t-1}^{t-1} + \sigma^2_\eta\\
+u_{t}^t = u_t^{t-1} + K_t (y_t^*- u_t^{t-1}), \ \ \ & P_{t}^t = (1-K_t)P_{t}^{t-1}\\
+K_t = \frac{P_{t}^{t-1}}{P_{t}^{t-1} + \sigma^2_\varepsilon}
+\end{aligned}
+\end{equation}
+
+Let $\psi = \{\sigma^2_\eta, \sigma^2_\varepsilon, \beta\}$Here, $u_i^j = E_\psi(\mu_i|y_{1:j})$ and $P_i^j = var_\psi(\mu_i|y_{1:j})$.
+
+
+Although we are using vectors, because of the independence each operation is done element-wise. To get $u_t^n = E_\psi(\mu_t|y_{1:n})$ and $P_t^n = var_\psi(\mu_t|y_{1:n})$ we need the backward recursions starting with $J_n = 0$,
+
+
+\begin{equation}
+\begin{aligned}
+u_{t-1}^n = u_{t-1}^{t-1} + J_{t-1}(u_t^n - u_t^{t-1})\\
+P_{t-1}^n = P_{t-1}^{t-1} + J_{t-1}^2 (P^n_t-P^{t-1}_t)\\
+J_{t-1} = \frac{P^{t-1}_{t-1}}{P_t^{t-1}}
+\end{aligned}
+\end{equation}
+
+
+For the posterior of $\mu$ we want,
+
+
+\begin{equation}
+\begin{aligned}
+P_\psi(\mu{0:n}|y_{1:n}) &= P_\psi(\mu_n|y_{1:n})P_\psi(\mu_{n-1}|\mu_n, y_{1:n}) ...  P_\psi(\mu_0|\mu_{1:n}, y_{1:n}.)\\
+&= P_\psi(\mu_n|y_{1:n})P_\psi(\mu_{n-1}|\mu_n, y_{1:(n-1)}) ...  P_\psi(\mu_0|\mu_1)
+\end{aligned}
+\end{equation}
+
+Therefore we need the densities,
+
+\begin{equation}
+\begin{aligned}
+p_\psi(\mu_t|\mu_{t+1}, y_{1:t}) \propto p_\psi(\mu_t| y_{1:t})p_\psi(\mu_{t+1}| \mu_t)
+\end{aligned}
+\end{equation}
+
+Because of the normality assumption we know that $\mu_t|y_{1:t} \sim N_\psi(u_t^t, P_t^t)$ and $\mu_{t+1}|\mu_t \sim N_\psi(\mu_t, \sigma^2_\eta)$. After completing some algebra we find $m_t = E_\psi(\mu_t| \mu_{t+1}y_{1:t}) = u^t_t + J_t (\mu_{t+1} - u^t_{t+1})$ and $V_t = P_t^t - J_t^2 P_{t+1}^t$. Therefore, the posterior distribution for $\mu_t$ is $N(m_t, V_t)$.
+
+For the backward sampling procedure we start by sampling a $\mu_n^*$ from a $N_\psi(m_n, V_n)$, then setting $\mu_n^* = \mu_n$ in the calculation of $m_{n-1}$ to then sample $\mu_{n-1}^*$ from a $N_\psi(m_{n-1}, V_{n-1})$. This process continues until a whole chain $\mu_{1:n}^*$ has been sampled.
+
+
+
+
+
+## $\beta|Y, X, \mu, \sigma^2_\eta, \sigma^2_\varepsilon$
+
+With all the other parameters fixed,
+
+\begin{equation}
+\begin{aligned}
+P(\beta|...) = \frac{P(...|\beta)P(\beta)}{P(...)}
+\end{aligned}
+\end{equation}
+
+Because $P(...)$ is constant with respect to $\beta$ and $P(\beta)$ is already defined we focus our attention on $P(...|\beta)$.
+
+
+
+\begin{equation}
+\begin{aligned}
+P(...|\beta) = &P(y_1, ..., y_T, \mu_1, ..., \mu_T, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= & P(y_T|y_1, ..., y_{T-1}, \mu_1, ..., \mu_T, \sigma^2_\eta, \sigma^2_\varepsilon \beta)\\
+& \times P(y_1, ..., y_{T-1}, \mu_1, ..., \mu_T, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= & P(y_T|\mu_T, \sigma^2_\varepsilon \beta)P(\mu_{T-1}|y_1, ..., y_{T-1}, \mu_1, ..., {\mu_{T-1}}, \sigma^2_\eta, \sigma^2_\varepsilon, \beta)\\
+& \times P(y_1, ..., y_{T-1}, \mu_1, ..., {\mu_{T-1}}, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= & P(y_T|\mu_T, \sigma^2_\varepsilon \beta)P(\mu_{T-1}|{\mu_{T-1}}, \sigma^2_\eta)\\
+& \times P(y_1, ..., y_{T-1}, \mu_1, ..., {\mu_{T-1}}, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= &P(\sigma^2_\varepsilon)P(\sigma^2_\eta)\bigg(\prod^T_{k=0} P(\mu_k|\mu_{k-1},\sigma^2_{\eta})\bigg) \prod^T_{t=1} P(y_t|\mu_t, \sigma^2_\varepsilon, \beta)\\
+\propto & \prod^T_{t=1} P(y_t|\mu_t, \sigma^2_\varepsilon, \beta)
+\end{aligned}
+\end{equation}
+
+
+For simplicity we can further write, 
+
+
+\begin{equation}
+\begin{aligned}
+-2logP(...|\beta) \propto & \sum^T_{t=1}\frac{ (y_t - \mu_t - X_t\beta)' (y_t - \mu_t - X_t\beta)}{\sigma^2_\varepsilon}\\
+\propto & \sum^T_{t=1}\frac{-2y_t'X_t\beta +2\mu_t'X_t\beta + \beta'X_t'X_t\beta}{\sigma^2_\varepsilon}\\
+\propto & \frac{\beta'\big(\sum^T_{t=1}X_t'X_t\big)\beta -2\big(\sum^T_{t=1}y_t-\mu_t\big)'X_t\beta }{\sigma^2_\varepsilon}\\
+\end{aligned}
+\end{equation}
+
+
+We can then find the proportionality of the prior of $\beta$,
+
+
+\begin{equation}
+\begin{aligned}
+-2logP(\beta) \propto & \frac{(\beta - \theta)'(\beta-\theta)}{\sigma^2_\beta}\\
+\propto & \frac{\beta'\beta - 2\theta\beta}{\sigma^2_\beta}
+\end{aligned}
+\end{equation}
+
+
+Thus the -2log posterior of $\beta$ is porportional to,
+
+
+\begin{equation}
+\begin{aligned}
+-2logP(\beta|...) \propto & \frac{\beta'\big(\sum^T_{t=1}X_t'X_t\big)\beta -2\big(\sum^T_{t=1}y_t-\mu_t\big)'X_t\beta }{\sigma^2_\varepsilon} + \frac{\beta'\beta - 2\theta\beta}{\sigma^2_\beta}\\
+ \propto & \frac{\beta'\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)\beta -2\sigma^2_\beta\big(\sum^T_{t=1}y_t-\mu_t\big)'X_t\beta +\beta'\sigma^2_\varepsilon I_p \beta - 2\sigma^2_\varepsilon\theta\beta}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+  \propto & \frac{\beta'\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)\beta+\beta'\sigma^2_\varepsilon I_p \beta -2\sigma^2_\beta\big(\sum^T_{t=1}y_t-\mu_t\big)'X_t\beta  - 2\sigma^2_\varepsilon\theta\beta}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+\propto & \frac{\beta' \bigg(\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+\sigma^2_\varepsilon I_p \bigg) \beta -2\bigg(\sigma^2_\beta\big(\sum^T_{t=1}y_t-\mu_t\big)'X_t -\sigma^2_\varepsilon\theta'\bigg)\beta}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+\propto & \frac{(\beta - \Sigma^{-1} B)'
+\Sigma
+(\beta - \Sigma^{-1}B)}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+\end{aligned}
+\end{equation}
+
+
+Where $B = \sigma^2_\beta\big(\sum^T_{t=1}y_t-\mu_t\big)'X_t -\sigma^2_\varepsilon\theta'$ and $\Sigma = \big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+\sigma^2_\varepsilon I_p$.
+
+Therefore, $\beta|... \sim N(\Sigma^{-1}B, \sigma^2_\varepsilon\sigma^2_\beta\Sigma^{-1})$. Note here that $\Sigma$ is a $p\times p$ matrix which typically will not be computationally intensive.
+
+## $\sigma^2_\eta|Y, X, \mu, \sigma^2_\varepsilon$ and $\sigma^2_\varepsilon|Y, X, \mu, \sigma^2_\eta$ 
+
+The posterior of $\sigma^2_\eta$ is found in a similar fashion.
+
+
+\begin{equation}
+\begin{aligned}
+P(\sigma^2_\eta|...) =& \frac{P(...|\sigma^2_\eta)P(\sigma^2_\eta)}{P(...)}\\
+\propto & P(...|\sigma^2_\eta)P(\sigma^2_\eta)\\
+\propto & (\sigma^2_\eta)^{-nT/2} e^{\sum^T_{t=1} (\mu_t-\mu_{t-1})^2/2\sigma^2_\eta}(\sigma^2_\eta)^{-a_0/2-1}e^{-b_0/2\sigma^2_\eta}\\
+\propto & (\sigma^2_\eta)^{-(nT+a_0)/2-1} e^{(\sum^T_{t=1} (\mu_t-\mu_{t-1})^2+b_0)/2\sigma^2_\eta}
+\end{aligned}
+\end{equation}
+
+Therefore, $\sigma^2_\eta|... \sim IG(\frac{nT+a_0}{2}, \frac{\sum^T_{t=1} (\mu_t-\mu_{t-1})^2+b_0}{2})$.
+
+In a very similar fashion we can show $\sigma^2_\varepsilon|... \sim IG(\frac{nT+c_0}{2}, \frac{d_0 + \sum^T_{t=1}(y_t-X_t\beta-\mu_t)^2}{2})$.
+
+
+# The Gibbs Sampling Algorithm
+
+We can arrive to the conditional maximum liklihood estimate of $\beta$ using Gibbs sampling. The algorithm will work as follows:
+
+1. Select prior parameters for $\theta, \sigma^2_\beta, a_0, b_0, c_0, d_0$.
+2. Let $\beta^{(0)} = \theta$, $\sigma^{2(0)}_\eta = \frac{d_0/2}{1+c_0/2}$, and $\sigma^{2(0)}_\varepsilon = \frac{b_0/2}{1+a_0/2}$.
+3. Run a forward-filtering backward sampling procedure as described above conditioning on $\beta^{i-1}, \sigma^{2(i-1)}_\eta, \sigma^{2(i-1)}_\varepsilon$  and set the samples equal to $\mu^{(i)}$ for the $i^{th}$ iteration.
+4. Sample $\sigma^{2*}_\eta$ from $IG(\frac{nT+a_0}{2}, \frac{\sum^T_{t=1} (\mu^{(i)}_t-\mu^{(i)}_{t-1})^2+b_0}{2})$ and set $\sigma^{2(i)}_\eta = \sigma^{2*}_\eta$.
+5. Sample $\sigma^{2*}_\varepsilon$ from $IG(\frac{nT+c_0}{2}, \frac{d_0 + \sum^T_{t=1}(y_t-X_t\beta^{(i-1)}-\mu_t^{(i)})^2}{2})$ and set $\sigma^{2(i)}_\varepsilon = \sigma^{2*}_\varepsilon$. 
+6. Sample $\beta^*$ from $N(\Sigma^{-1}B, \sigma^2_\varepsilon\sigma^2_\beta\Sigma^{-1})$ where $\mu = \mu^{(i)}, \sigma^{2}_\eta = \sigma^{2(i)}_\eta, \sigma^{2}_\varepsilon=\sigma^{2(i)}_\varepsilon$ and set $\beta^{(i)} = \beta^*$.
+7. Repeat steps 3-6 for $i$ in 1, 2, ..., M.
+
+
+
+# Code Evaluation
+
+```{r, include=FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+
+```
+
+## Estimating All Parameters
+
+To evaluate the Gibbs Sampling procedure I simulated the following model using a frequentist framerwork,
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= \mu_t + t * X \begin{bmatrix}4\\ 2\\ -1\end{bmatrix} +\varepsilon_t\\
+\mu_t &= \mu_{t-1} + \eta_t
+\end{aligned}
+\end{equation}
+
+where $n = 100$, $t = \{1, 2, 3, 4\}$, $x_{i,j} \sim N(0,1)$, $\varepsilon_t \sim N(0, 1)$, $\eta_t \sim N(0, 1)$, and $\mu_0 \sim N(0,1)$. To do this I used the following function,
+
+```{r}
+#Simulate outcome based on the simple state space model
+ss.simp.sim <- function(X, B, t = 100, u0 = 0, P0 = 1, sigma2.eps = 1, sigma2.eta = 1){
+  XB <- X%*%B
+  n <- length(XB)
+  #Initiate y and mu
+  y <- matrix(NA, nrow = n, ncol = t)
+  mu <- matrix(NA, nrow = n, ncol = t)
+  mu[,1] <- rnorm(n, u0, sd = sqrt(P0)) + rnorm(n, 0, sd = sqrt(sigma2.eta))
+  y[,1] <- mu[,1] + XB + rnorm(n,0, sd = sqrt(sigma2.eta))
+  #iteritively simulate y based on the model
+  for(i in 2:t){
+    mu[,i] <- mu[,i-1] + rnorm(n,0, sd = sqrt(sigma2.eta))
+    y[,i] <- mu[,i]  + i * XB + rnorm(n,0,sd = sqrt(sigma2.eps))
+  }
+  y
+}
+
+n <- 100
+B <- c(4, 2, -1)
+# B <- 0
+p <- length(B)
+X <- matrix(rnorm(n*p), n, p)
+
+### Simulates the data
+set.seed(2438)
+y <- ss.simp.sim(X, B, 4, P0 = 1, u0 = 0)
+```
+
+
+I then set the following prior parameters,
+
+\begin{equation}
+\begin{aligned}
+u_0 &= 0\\
+P_0 &= 10\\
+\theta &= (0, 0, 0)'\\
+\sigma^2_\beta &= 10\\
+a_0 &= .01\\
+b_0 &= .01\\
+c_0 &= .01\\
+d_0 &= .01
+\end{aligned}
+\end{equation}
+
+
+```{r}
+#"prior" for \mu
+P0 <- 10
+u0 <- 0
+#\beta priors
+Beta.Intial <- 0
+sigma2.beta <- 10
+#\sigma^2_\eta priors
+a0 <- .01
+b0 <- .01
+#\sigma^2_\varepsilon priors
+c0 <- .01
+d0 <- .01
+```
+
+
+Next, I initialized all parameters
+
+```{r}
+Burn <- 500
+Its <- 1500
+
+p <- ncol(X)
+T <- ncol(y)
+n <- nrow(y)
+
+# This allows the user to insert a single value for all \beta prior means
+if(length(Beta.Intial)  == p) Beta.Intial <- Beta.Intial else Beta.Intial <- rep(Beta.Intial, p)
+B.star <- Beta.Intial
+
+#Mean of variances priors
+sigma2.eta.star <- (d0/2)/(c0/2 + 1)
+sigma2.eps.star <- (b0/2)/(a0/2 + 1)
+
+#Empty objects to track each iteration
+Beta.Track <- matrix(NA, p, Its)
+sigma2.eps.Track <- numeric(Its)
+sigma2.eta.Track <- numeric(Its)
+mu.Track <- array(NA, dim = c(n, T, Its))
+```
+
+
+Note, the following is my code for the forward filtering backward sampling which is a modified version of what is found in Shumway and Stoeffer.
+
+```{r}
+ffbs = function(y,V,W,m0,C0){ 
+  T = ncol(y); n = nrow(y)
+  a = matrix(0, n, T); R = matrix(0, n, T) 
+  m = matrix(0, n, T); C = matrix(0, n, T); B = matrix(0, n, T-1)
+  H = matrix(0, n, T-1); mm = matrix(0, n, T); CC = matrix(0, n, T) 
+  x = matrix(0, n, T); llike = 0.0 
+  for (t in 1:T){ 
+    if(t==1){
+      a[,1] = m0; R[,1] = C0 + W
+    }else{
+      a[,t] = m[,t-1]; R[,t] = C[,t-1] + W
+    }
+    f = a[,t]
+    Q = R[,t] + V 
+    A = R[,t]/Q 
+    m[,t] = a[,t]+A*(y[,t]-f) 
+    C[,t] = R[,t]-Q*A**2 
+    B[,t-1] = C[,t-1]/R[,t] 
+    H[,t-1] = C[,t-1]-R[,t]*B[,t-1]**2 
+    llike = llike + sum(dnorm(y[,t],f,sqrt(Q),log=TRUE)) 
+  } 
+  mm[,T] = m[,T]; CC[,T] = C[,T] 
+  x[,T] = rnorm(n,m[,T],sqrt(C[,T])) 
+  for (t in (T-1):1){ 
+    mm[,t] = m[,t] + C[,t]/R[,t+1]*(mm[,t+1]-a[,t+1])
+    CC[,t] = C[,t] - (C[,t]^2)/(R[,t+1]^2)*(R[,t+1]-CC[,t+1])
+    x[,t] = rnorm(n,m[,t]+B[,t]*(x[,t+1]-a[,t+1]),sqrt(H[,t]))
+  } 
+  return(list(x=x,m=m,C=C,mm=mm,CC=CC,llike=llike)) 
+}
+
+```
+
+
+Here I proceed with the iterations,
+
+```{r}
+#Needed for beta posterior
+XtX <- matrix(0, p, p)
+for(i in 1:T){
+  XtX <- XtX + crossprod(i*X)
+}
+
+
+for(j in 1:Its){
+  ###### mu post
+  ##Modify y to condition on \beta
+  y.star <- matrix(NA, nrow(y), ncol(y))
+  for(i in 1:T)
+    y.star[,i] <- y[,i] - i * X %*% B.star
+  ##Run forward filtering backward sampling
+  mu.star <- ffbs(y.star, sigma2.eps.star, sigma2.eta.star, u0, P0)$x 
+  mu.Track[,,j] <- mu.star
+  
+  ##### Sigma NR
+  nv <- sum((y.star - mu.star)^2)
+  sigma2.eps.star <- sigma2.eps.Track[j] <- 1/rgamma(1, (n*T/2 +c0), d0+nv/2)
+  
+  np <- sum(apply(mu.star, 1, diff)^2)
+  sigma2.eta.star <- sigma2.eta.Track[j] <- 1/rgamma(1, (n*T/ 2 + a0), (b0 + np/ 2))  
+
+  #### Beta Post
+  v.star <- (y-mu.star)
+  B.sum <- numeric(p)
+  for(i in 1:ncol(v.star))
+    B.sum <- B.sum + crossprod(v.star[,i], i * X)
+  B.Big <- sigma2.beta * B.sum + sigma2.eta.star * Beta.Intial
+  Sigma <- sigma2.beta * XtX + diag(sigma2.eps.star, p)
+  B.star <- Beta.Track[,j] <- mvtnorm::rmvnorm(1, mean = solve(Sigma, t(B.Big)), sigma = solve(Sigma) * sigma2.eps.star * sigma2.beta)[1,]
+}
+```
+
+
+
+These plots show how well $\beta$ converges.
+
+```{r}
+Beta.Track %>%
+  t() %>%
+  data.frame() %>%
+  set_names(c("B1", "B2", "B3")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Beta", "Value", B1, B2, B3) %>%
+  mutate(Z = case_when(
+    Beta == "B1" ~ 4,
+    Beta == "B2" ~ 2,
+    Beta == "B3" ~ -1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Beta)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Beta, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+
+```
+
+```{r}
+
+cbind(
+  Beta.True = c(4, 2, -1),
+  Estimate = rowMeans(Beta.Track[,Burn:Its]),
+  apply(Beta.Track[,Burn:Its], 1, quantile, c(.025, 0.975)) %>%
+  t()
+) %>%
+  kable(booktabs = TRUE)
+
+```
+
+
+
+
+The $\beta$ estimates seem to do a good job of finding the right parameters.
+
+```{r}
+data.frame(sigma2.eps.Track, sigma2.eta.Track) %>%
+  set_names(c("var.eps", "var.eta")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Variance", "Value", var.eps, var.eta) %>%
+  mutate(Z = case_when(
+    Variance == "var.eps" ~ 1,
+    Variance == "var.eta" ~ 1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Variance)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Variance, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+```
+
+
+The posteriors for $\sigma^2_\varepsilon$ and $\sigma^2_\eta$ converge to the incorrect values which may increase variability of $\beta$.
+
+
+## Fixed Variance
+
+I repeated the process except fixing the variances to be their true values for each iteration rather than calculating their posteriors.
+
+
+
+```{r}
+#"prior" for \mu
+P0 <- 10
+u0 <- 0
+#\beta priors
+Beta.Intial <- 0
+sigma2.beta <- 10
+
+Burn <- 500
+Its <- 1500
+
+p <- ncol(X)
+T <- ncol(y)
+n <- nrow(y)
+
+# This allows the user to insert a single value for all \beta prior means
+if(length(Beta.Intial)  == p) Beta.Intial <- Beta.Intial else Beta.Intial <- rep(Beta.Intial, p)
+B.star <- Beta.Intial
+
+#Fix Variances
+sigma2.eta.star <- 1
+sigma2.eps.star <- 1
+
+#Empty objects to track each iteration
+Beta.Track <- matrix(NA, p, Its)
+mu.Track <- array(NA, dim = c(n, T, Its))
+
+#Needed for beta posterior
+XtX <- matrix(0, p, p)
+for(i in 1:T){
+  XtX <- XtX + crossprod(i*X)
+}
+
+
+for(j in 1:Its){
+  ###### mu post
+  ##Modify y to condition on \beta
+  y.star <- matrix(NA, nrow(y), ncol(y))
+  for(i in 1:T)
+    y.star[,i] <- y[,i] - i * X %*% B.star
+  ##Run forward filtering backward sampling
+  mu.star <- ffbs(y.star, sigma2.eps.star, sigma2.eta.star, u0, P0)$x 
+  mu.Track[,,j] <- mu.star
+  
+  # ##### Sigma NR
+  # nv <- sum((y.star - mu.star)^2)
+  # sigma2.eps.star <- sigma2.eps.Track[j] <- 1/rgamma(1, (n*T/2 +c0), d0+nv/2)
+  # 
+  # np <- sum(apply(mu.star, 1, diff)^2)
+  # sigma2.eta.star <- sigma2.eta.Track[j] <- 1/rgamma(1, (n*T/ 2 + a0), (b0 + np/ 2))  
+
+  #### Beta Post
+  v.star <- (y-mu.star)
+  B.sum <- numeric(p)
+  for(i in 1:ncol(v.star))
+    B.sum <- B.sum + crossprod(v.star[,i], i * X)
+  B.Big <- sigma2.beta * B.sum + sigma2.eta.star * Beta.Intial
+  Sigma <- sigma2.beta * XtX + diag(sigma2.eps.star, p)
+  B.star <- Beta.Track[,j] <- mvtnorm::rmvnorm(1, mean = solve(Sigma, t(B.Big)), sigma = solve(Sigma) * sigma2.eps.star * sigma2.beta)[1,]
+}
+```
+
+```{r}
+Beta.Track %>%
+  t() %>%
+  data.frame() %>%
+  set_names(c("B1", "B2", "B3")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Beta", "Value", B1, B2, B3) %>%
+  mutate(Z = case_when(
+    Beta == "B1" ~ 4,
+    Beta == "B2" ~ 2,
+    Beta == "B3" ~ -1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Beta)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Beta, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+
+```
+
+
+
+```{r}
+
+cbind(
+  Beta.True = c(4, 2, -1),
+  Estimate = rowMeans(Beta.Track[,Burn:Its]),
+  apply(Beta.Track[,Burn:Its], 1, quantile, c(.025, 0.975)) %>%
+  t()
+) %>%
+  kable(booktabs = TRUE)
+
+```
+
+
+
+
+Even though we condition on the true variances it doesn't seem help our estimates much.
+
+
+## Fixed $\beta$
+
+I again went through the same process, but with this time fixing $\beta$
+
+```{r}
+set.seed(2438)
+
+n <- 100
+B <- 0
+p <- length(B)
+X <- matrix(0, n, p)
+
+### Simulates the data
+y <- ss.simp.sim(X, B, 4, P0 = 1, u0 = 0)
+
+#"prior" for \mu
+P0 <- 10
+u0 <- 0
+#\sigma^2_\eta priors
+a0 <- .01
+b0 <- .01
+#\sigma^2_\varepsilon priors
+c0 <- .01
+d0 <- .01
+
+Burn <- 500
+Its <- 1500
+
+p <- ncol(X)
+T <- ncol(y)
+n <- nrow(y)
+
+B.star <- 0
+
+#Mean of variances priors
+sigma2.eta.star <- (d0/2)/(c0/2 + 1)
+sigma2.eps.star <- (b0/2)/(a0/2 + 1)
+
+#Empty objects to track each iteration
+sigma2.eps.Track <- numeric(Its)
+sigma2.eta.Track <- numeric(Its)
+mu.Track <- array(NA, dim = c(n, T, Its))
+
+
+for(j in 1:Its){
+  ###### mu post
+  ##Modify y to condition on \beta
+  y.star <- y
+  ##Run forward filtering backward sampling
+  mu.star <- ffbs(y.star, sigma2.eps.star, sigma2.eta.star, u0, P0)$x 
+  mu.Track[,,j] <- mu.star
+  
+  ##### Sigma NR
+  nv <- sum((y.star - mu.star)^2)
+  sigma2.eps.star <- sigma2.eps.Track[j] <- 1/rgamma(1, (n*T/2 +c0), d0+nv/2)
+
+  np <- sum(apply(mu.star, 1, diff)^2)
+  sigma2.eta.star <- sigma2.eta.Track[j] <- 1/rgamma(1, (n*T/ 2 + a0), (b0 + np/ 2))
+
+  #### Beta Post
+  # v.star <- (y-mu.star)
+  # B.sum <- numeric(p)
+  # for(i in 1:ncol(v.star))
+  #   B.sum <- B.sum + crossprod(v.star[,i], i * X)
+  # B.Big <- sigma2.beta * B.sum + sigma2.eta.star * Beta.Intial
+  # Sigma <- sigma2.beta * XtX + diag(sigma2.eps.star, p)
+  # B.star <- Beta.Track[,j] <- mvtnorm::rmvnorm(1, mean = solve(Sigma, t(B.Big)), sigma = solve(Sigma) * sigma2.eps.star * sigma2.beta)[1,]
+}
+```
+
+
+
+
+
+
+```{r}
+data.frame(sigma2.eps.Track, sigma2.eta.Track) %>%
+  set_names(c("var.eps", "var.eta")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Variance", "Value", var.eps, var.eta) %>%
+  mutate(Z = case_when(
+    Variance == "var.eps" ~ 1,
+    Variance == "var.eta" ~ 1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Variance)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Variance, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+```
+
+Interstingly I have the same problem, but this time the variance crashes to 0 in the observed vector and the state vector variances gets large.
+
+## Fixing $\beta$ and increase $T = 100$
+
+I wanted to find out if my posterior estimation was wrong, so I again fixed $\beta$ but increased $T = 50$.
+
+
+
+```{r}
+set.seed(2438)
+
+n <- 100
+B <- 0
+p <- length(B)
+X <- matrix(0, n, p)
+
+### Simulates the data
+y <- ss.simp.sim(X, B, 100, P0 = 1, u0 = 0)
+
+#"prior" for \mu
+P0 <- 10
+u0 <- 0
+#\sigma^2_\eta priors
+a0 <- .01
+b0 <- .01
+#\sigma^2_\varepsilon priors
+c0 <- .01
+d0 <- .01
+
+Burn <- 500
+Its <- 1500
+
+p <- ncol(X)
+T <- ncol(y)
+n <- nrow(y)
+
+B.star <- 0
+
+#Mean of variances priors
+sigma2.eta.star <- (d0/2)/(c0/2 + 1)
+sigma2.eps.star <- (b0/2)/(a0/2 + 1)
+
+#Empty objects to track each iteration
+sigma2.eps.Track <- numeric(Its)
+sigma2.eta.Track <- numeric(Its)
+mu.Track <- array(NA, dim = c(n, T, Its))
+
+
+for(j in 1:Its){
+  ###### mu post
+  ##Modify y to condition on \beta
+  y.star <- y
+  ##Run forward filtering backward sampling
+  mu.star <- ffbs(y.star, sigma2.eps.star, sigma2.eta.star, u0, P0)$x 
+  mu.Track[,,j] <- mu.star
+  
+  ##### Sigma NR
+  nv <- sum((y.star - mu.star)^2)
+  sigma2.eps.star <- sigma2.eps.Track[j] <- 1/rgamma(1, (n*T/2 +c0), d0+nv/2)
+
+  np <- sum(apply(mu.star, 1, diff)^2)
+  sigma2.eta.star <- sigma2.eta.Track[j] <- 1/rgamma(1, (n*T/ 2 + a0), (b0 + np/ 2))
+
+  #### Beta Post
+  # v.star <- (y-mu.star)
+  # B.sum <- numeric(p)
+  # for(i in 1:ncol(v.star))
+  #   B.sum <- B.sum + crossprod(v.star[,i], i * X)
+  # B.Big <- sigma2.beta * B.sum + sigma2.eta.star * Beta.Intial
+  # Sigma <- sigma2.beta * XtX + diag(sigma2.eps.star, p)
+  # B.star <- Beta.Track[,j] <- mvtnorm::rmvnorm(1, mean = solve(Sigma, t(B.Big)), sigma = solve(Sigma) * sigma2.eps.star * sigma2.beta)[1,]
+}
+```
+
+
+
+
+
+
+```{r}
+data.frame(sigma2.eps.Track, sigma2.eta.Track) %>%
+  set_names(c("var.eps", "var.eta")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Variance", "Value", var.eps, var.eta) %>%
+  mutate(Z = case_when(
+    Variance == "var.eps" ~ 1,
+    Variance == "var.eta" ~ 1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Variance)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Variance, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+```
+
+
+The variances get much closer to their true value. 
+
+
+## Estimating Both Parameters with $T = 100$
+
+```{r}
+n <- 100
+B <- c(4, 2, -1)
+# B <- 0
+p <- length(B)
+X <- matrix(rnorm(n*p), n, p)
+
+### Simulates the data
+set.seed(2438)
+y <- ss.simp.sim(X, B, 100, P0 = 1, u0 = 0)
+
+#"prior" for \mu
+P0 <- 10
+u0 <- 0
+#\beta priors
+Beta.Intial <- 0
+sigma2.beta <- 10
+#\sigma^2_\eta priors
+a0 <- .01
+b0 <- .01
+#\sigma^2_\varepsilon priors
+c0 <- .01
+d0 <- .01
+
+Burn <- 500
+Its <- 1500
+
+p <- ncol(X)
+T <- ncol(y)
+n <- nrow(y)
+
+# This allows the user to insert a single value for all \beta prior means
+if(length(Beta.Intial)  == p) Beta.Intial <- Beta.Intial else Beta.Intial <- rep(Beta.Intial, p)
+B.star <- Beta.Intial
+
+#Mean of variances priors
+sigma2.eta.star <- (d0/2)/(c0/2 + 1)
+sigma2.eps.star <- (b0/2)/(a0/2 + 1)
+
+#Empty objects to track each iteration
+Beta.Track <- matrix(NA, p, Its)
+sigma2.eps.Track <- numeric(Its)
+sigma2.eta.Track <- numeric(Its)
+mu.Track <- array(NA, dim = c(n, T, Its))
+
+
+#Needed for beta posterior
+XtX <- matrix(0, p, p)
+for(i in 1:T){
+  XtX <- XtX + crossprod(i*X)
+}
+
+
+for(j in 1:Its){
+  ###### mu post
+  ##Modify y to condition on \beta
+  y.star <- matrix(NA, nrow(y), ncol(y))
+  for(i in 1:T)
+    y.star[,i] <- y[,i] - i * X %*% B.star
+  ##Run forward filtering backward sampling
+  mu.star <- ffbs(y.star, sigma2.eps.star, sigma2.eta.star, u0, P0)$x 
+  mu.Track[,,j] <- mu.star
+  
+  ##### Sigma NR
+  nv <- sum((y.star - mu.star)^2)
+  sigma2.eps.star <- sigma2.eps.Track[j] <- 1/rgamma(1, (n*T/2 +c0), d0+nv/2)
+  
+  np <- sum(apply(mu.star, 1, diff)^2)
+  sigma2.eta.star <- sigma2.eta.Track[j] <- 1/rgamma(1, (n*T/ 2 + a0), (b0 + np/ 2))  
+
+  #### Beta Post
+  v.star <- (y-mu.star)
+  B.sum <- numeric(p)
+  for(i in 1:ncol(v.star))
+    B.sum <- B.sum + crossprod(v.star[,i], i * X)
+  B.Big <- sigma2.beta * B.sum + sigma2.eta.star * Beta.Intial
+  Sigma <- sigma2.beta * XtX + diag(sigma2.eps.star, p)
+  B.star <- Beta.Track[,j] <- mvtnorm::rmvnorm(1, mean = solve(Sigma, t(B.Big)), sigma = solve(Sigma) * sigma2.eps.star * sigma2.beta)[1,]
+}
+```
+
+
+
+```{r}
+Beta.Track %>%
+  t() %>%
+  data.frame() %>%
+  set_names(c("B1", "B2", "B3")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Beta", "Value", B1, B2, B3) %>%
+  mutate(Z = case_when(
+    Beta == "B1" ~ 4,
+    Beta == "B2" ~ 2,
+    Beta == "B3" ~ -1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Beta)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Beta, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+
+```
+
+
+Not even close... I'm guessing the issues here is another numerical accuracy inversion issue as $\sum_{t=1}^T X_t'X_t$ portion of $\Sigma$ will get very large as $T$ increases.
+
+
+```{r}
+data.frame(sigma2.eps.Track, sigma2.eta.Track) %>%
+  set_names(c("var.eps", "var.eta")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Variance", "Value", var.eps, var.eta) %>%
+  mutate(Z = case_when(
+    Variance == "var.eps" ~ 1,
+    Variance == "var.eta" ~ 1
+  )) %>%
+  ggplot(aes(x = ind, y = Value, color = Variance)) + 
+  geom_point(shape = 21) + 
+  facet_wrap(. ~ Variance, scales = "free_y") + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  theme(legend.position = "none")
+
+```
+
+
+
+
+
+
+
+
+
+
+
+

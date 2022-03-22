@@ -1,0 +1,1767 @@
+---
+title: "Using State Space Models for Longitudinal Neuropsychological Outcomes"
+author: Zach Baucom
+output:
+  beamer_presentation:
+    theme: "AnnArbor"
+    colortheme: "dolphin"
+    fonttheme: "structurebold"
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{amsmath}
+- \newcommand\mysim{\mathrel{\stackrel{\makebox[0pt]{\mbox{\normalfont\tiny asym}}}{\sim}}}
+---
+
+
+```{r, include = FALSE}
+library(gridExtra)
+library(lme4)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+library(abind)
+library(nlme)
+### Set working directory to correct location
+# cdir <- stringr::str_split(getwd(), "/")[[1]]
+# udir <- cdir[1:which(cdir == "State-Space-Methods")]
+# knitr::opts_knit$set(root.dir = paste(udir, collapse = "/"))
+
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+knitr::opts_chunk$set(echo = FALSE, dev = "pdf", message = FALSE, warning = FALSE)
+```
+
+
+```{r, cache = TRUE, include=FALSE}
+library(tidyverse)
+library(lme4)
+library(nlme)
+knitr::opts_chunk$set(
+    # This should allow Rmarkdown to locate the data
+    root.dir = rprojroot::find_rstudio_root_file()
+)
+# load("NACC/Data/RData")
+# rm(list = ls()[ls() != "longdata"])
+
+#Bins for histogram
+base_bins <- function(type) {
+  fun <- switch(type,
+    Sturges = nclass.Sturges,
+    scott = nclass.scott,
+    FD = nclass.FD,
+    stop("Unknown type", call. = FALSE)
+  )
+  
+  function(x) {
+    (max(x) - min(x)) / fun(x)
+  }
+}
+
+#Functions to remove missing code in tests
+m1 <- function(x){
+  ifelse(x %in% c(95, 96, 97, 98, -4), NA, x)
+}
+m2 <- function(x){
+  ifelse(x %in% c(995, 996, 997, 998, -4), NA, x)
+}
+
+
+# Read in NACC data
+longdata1 <- read.csv("NACC/Data2/investigator_nacc49.csv")
+
+longdata <- longdata1 %>%
+  #Select variables needed for this analysis
+  select(
+    NACCID, NACCUDSD, NACCFDYS, VISITYR, BIRTHYR, RACE, EDUC, SEX, NACCAPOE,
+    ANIMALS
+  ) %>%
+  #Remove missing codes in tests
+  mutate_at(vars(ANIMALS), m1) %>%
+  #Select only those who are demented for each observation
+  group_by(NACCID) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  filter(!is.na(ANIMALS)) %>%
+  #Select those who started as normal and transitioned to impairment
+  filter(NACCUDSD[1] == 1 & any(NACCUDSD %in% c(3,4))) %>%
+  #Derive additional variables
+  mutate(
+    time = NACCFDYS/365.25, 
+    AGE = VISITYR - BIRTHYR,
+    RACEWHITE = ifelse(RACE == 1, 1, 0),
+    APOE = ifelse(NACCAPOE %in% c(2, 4), 1, ifelse(NACCAPOE == 9, NA, 0)),
+    APOESEX = APOE * (SEX-1),
+    Intercept = 1,
+    #Do they have an impairment
+    MCIoD = NACCUDSD %in% c(3,4),
+    FT = min(time[MCIoD]),
+    #All time past initial impairment
+    DEC = time >= FT,
+    #Did the subject ever go to impairment to non-impairment
+    reverter = MCIoD != DEC
+  ) %>%
+  arrange(NACCID, AGE) %>%
+  mutate(AgeBase = AGE[1]) %>%
+  #Remove all reverters
+  filter(!any(reverter)) %>%
+  mutate(DEC = DEC * (time > 0) * (time - min(time[DEC > 0]))) %>%
+  ungroup(NACCID) %>%
+  mutate(A1 = AgeBase, E1 = EDUC, AgeBase = AgeBase - mean(AgeBase), EDUC = EDUC - mean(EDUC))%>%
+  mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = APOE * time, APOESEX = APOESEX * time)
+
+source("functions/BayesKalmUneq2.R") 
+ld2 <- longdata[,c( "NACCID", "time","Intercept", "ANIMALS", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX", "A1", "E1")] %>%
+  arrange(NACCID, time) 
+ld2 <- na.omit(ld2)
+ld2 <- ld2 %>%
+  group_by(NACCID) %>%
+  mutate(num = length(NACCID)) %>%
+  filter(num > 1)
+
+
+
+ld2$Intercept <- 1L
+Beta.Initial <- coef(lm(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), data = ld2))
+
+# saveRDS(Beta.Initial[-1], "C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+
+```
+
+
+```{r, cache = TRUE, include = FALSE}
+
+
+Its <- 2000
+Burn <- floor(Its/2)
+
+bkout <- BayesKalm.Uneq(
+    y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c( "time", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]), id = ld2$NACCID, time = ld2$time,
+    Burn = Burn, Its = Its, 
+    Beta.Initial = Beta.Initial[-1], sigma2.beta = 20, 
+    u0 = 0, P0 = 100
+  )
+
+Beta.b <- bkout$Beta[,Burn:Its]
+alpha.b <- bkout$mu[,,Burn:Its]
+
+BetaMean <- apply(Beta.b, 1, mean)
+alphaMean <- apply(alpha.b, 1:2, mean)
+
+
+
+X.b <- bkout$X
+time.b <- bkout$timeMat
+id.b <- bkout$id
+y.b <- bkout$y
+
+XBetaAll <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% BetaMean)
+
+
+Preds <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% Beta.b + alpha.b[,x,])
+
+PredVal <- Preds %>%
+  map(function(x){
+    apply(x, 1, function(y){
+      c(mean(y), quantile(y, c(.025, .975)))
+    })
+  })
+
+TimeMats <- map(1:length(PredVal), function(x){
+  cbind(data.frame(
+    id = id.b,
+    time = time.b[,x],
+    y = y.b[,x],
+    PredVal = PredVal[[x]][1,],
+    PredLCL = PredVal[[x]][2,],
+    PredUCL = PredVal[[x]][3,],
+    alpha = alphaMean[,x],
+    Xbeta = XBetaAll[[x]]
+  ), X.b[,,x])
+})
+
+
+CompleteData <- do.call("rbind", TimeMats)
+
+```
+
+
+```{r, cache=TRUE, include = FALSE}
+lmeMod <- lme(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), random =  ~1|NACCID, data = ld2, method = "ML")
+
+
+
+lmeDat <- ld2
+lmeDat$PredVal <- predict(lmeMod, lmeDat)
+```
+
+
+
+```{r, cache=TRUE, include = FALSE}
+lmeARMod <- lme(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), correlation = corAR1(form = ~time), random =  ~1|NACCID, data = ld2, method = "ML")
+
+
+
+lmeARDat <- ld2
+lmeARDat$PredVal <- predict(lmeARMod, lmeARDat)
+```
+
+
+```{r, cache=TRUE, include = FALSE, eval = FALSE}
+source("functions/KalmanRegression2.R")
+source("functions/KalmanRecReform2.R")
+
+KalmanReg2(
+  y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c( "time", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]), 
+  id = ld2$NACCID, time = ld2$time, 
+  Beta.Initial = Beta.Initial[-1], a1 = 0, P1 = 1e7, k = 15
+)
+
+
+```
+
+
+
+## Introduction
+
+
+* Zach Baucom, 4th year Biostatistics PhD student at Boston University.
+* Working with Yorghos Tripodis PhD. 
+  * Data and Biostatistics Director of the Boston University Alzheimer's Disease Center
+* Interested in modeling subject level cognitive decline over time/cognitive trajectories.
+
+
+## Dementia is a Problem
+
+* According to the World Health Organization dementia effects around 50 million people in the world today 
+  * 60-70% of those due to Alzheimer's disease (AD)
+* We want to create a model that can be used to,
+  * Illuminate how and why dementia progresses.
+  * Assist in early disease diagnosis.
+  * Determine intervention effectiveness.
+
+## Motivating Data
+
+* Data collected by the National Alzheimer's Coordinating Center (NACC).
+  * Established by the National Institute of Aging in 1990.
+  * Centralizes neuropsychological data from 34 different research facilities.
+  * Neuropsychological data include a number of cognitive tests repeated over time.
+  
+## Model of Interest
+
+* Studying the cognitive trajectory among those who transitioned from cognitively normal to MCI or Dementia during follow-up.
+  * Interested in the effect of the APOE e4 allele on cognition.
+  * 1,643 subjects in the analysis with a median of 6 visits.
+
+
+\begin{equation*}
+\begin{aligned}
+\text{Animals} \sim & (1 + \text{I\{Transitioned to MCI or Dementia\}} + \text{APOE} + \text{Sex}\\
+& + \text{APOE*Sex} + \text{Race} + \text{Age} + \text{Education}) * \text{Time}
+\end{aligned}
+\end{equation*}
+
+  
+  
+## Data Characteristics
+
+
+```{r, warning = FALSE, message = FALSE, cache = TRUE}
+gdat <- CompleteData %>%
+  group_by(id) 
+
+t6 <- gdat %>%
+  na.omit() %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  head() %>%
+  group_by() %>%
+  mutate(subject = paste("subject", 1:nrow(.)))
+
+tgdat <- gdat %>%
+  left_join(t6, "id") %>%
+  filter(!is.na(subject)) %>%
+  arrange(subject)
+
+tgdat %>%
+  mutate(Transitioned = `6` > 0) %>%
+  ggplot(aes(x = time, y = y)) +
+  geom_point(aes(color = Transitioned)) +
+  geom_smooth(se = FALSE, color = "black") +
+  facet_wrap(subject ~.) +
+  xlab("") +
+  ylab("Animals Test") +
+  theme_classic() +
+  theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank())
+```
+
+
+```{r,eval = FALSE}
+
+
+gdat <- CompleteData %>%
+  group_by(id) 
+
+t6 <- gdat %>%
+  na.omit() %>%
+  summarise(Count = n()) %>%
+  arrange(desc(Count)) %>%
+  head(20) %>%
+  group_by() %>%
+  mutate(subject = paste("subject", 1:nrow(.)))
+
+tgdat <- gdat %>%
+  left_join(t6, "id") %>%
+  filter(!is.na(subject)) %>%
+  arrange(subject) %>%
+  mutate()
+
+
+for(i in 1:6){
+  sub <- paste("subject", i)
+  
+  p1 <- tgdat %>%
+    filter(subject == sub) %>%
+    ggplot(aes(x = time, y = y)) +
+    geom_point()  +
+    geom_smooth(se = FALSE, color = "black") +
+    geom_point(aes(y = PredVal, color = subject), size = 2)+
+    geom_line(aes(y = PredVal, color = subject))+
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("")
+  
+  
+  p2 <- tgdat %>%
+    filter(subject == sub) %>%
+    ggplot(aes(x = time, y = Xbeta, color = subject)) +
+    geom_point() +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("")
+  
+  p3 <- tgdat %>%
+    filter(subject == sub) %>%
+    ggplot(aes(x = time, y = alpha, color = subject)) +
+    geom_point()  +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("")
+  
+  p4 <- tgdat %>%
+    filter(subject == sub) %>%
+    ggplot(aes(x = time, y = PredVal, color = subject)) +
+    geom_point()  +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("")
+  
+  gridExtra::grid.arrange(p1, p2, p3, layout_matrix = rbind(
+    c(1, NA),
+    c(2, 3)
+  )) %>%
+    print()
+}
+
+```
+
+
+
+
+## We Want a Model That...
+
+* Captures general trajectory.
+* Has the subject specific heterogeneity shown by the non-parametric method.
+* We are able to interpret and make inference on effects of interest.
+
+
+## Welcome to the State Space Model
+
+
+```{r, fig.height = 6, message=FALSE}
+sub <- "subject 4"
+
+p1 <- tgdat %>%
+  filter(subject == sub) %>%
+  ggplot(aes(x = time, y = y)) +
+  geom_point()  +
+  geom_smooth(se = FALSE, color = "black") +
+  geom_point(aes(y = PredVal, color = subject), size = 2)+
+  geom_line(aes(y = PredVal, color = subject))+
+  theme_classic() +
+  theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  ylab("")
+
+
+p2 <- tgdat %>%
+  filter(subject == sub) %>%
+  ggplot(aes(x = time, y = Xbeta, color = subject)) +
+  geom_point() +
+  theme_classic() +
+  theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  ylab("")
+
+p3 <- tgdat %>%
+  filter(subject == sub) %>%
+  ggplot(aes(x = time, y = alpha, color = subject)) +
+  geom_point()  +
+  theme_classic() +
+  theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  ylab("")
+
+p4 <- tgdat %>%
+  filter(subject == sub) %>%
+  ggplot(aes(x = time, y = PredVal, color = subject)) +
+  geom_point()  +
+  theme_classic() +
+  theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  ylab("")
+
+gridExtra::grid.arrange(p1, p2, p3, layout_matrix = rbind(
+  c(1, NA),
+  c(2, 3)
+))
+
+```
+
+
+
+
+
+
+
+
+## State Space Model Introduction
+
+* State Space Models have been primarily used for time series data with a large number of time points and only a small number of chains observed.
+* We are working to apply these models to a small number of time points and a large number of subjects.
+  * Small $t$ and large $n$ are typically what we see in observational data.
+* We wish to show that the State Space Model can be more acomodating than the commonly used linear mixed effect models (LMEM)(Laird and
+Ware, 1983; Diggle, Liang and Zeger, 1994).
+
+## Computation Consideration
+
+* State space models can be computationally intensive.
+* We will compare different state space model estimation methods to find the best balance of computational efficiency and accuracy.
+  * State space model in matrix form.
+  * Partitioned state space model.
+  * Bayesian state space model.
+
+## State Space Model
+
+A general linear state space model can be denoted as:
+
+
+\begin{align*}
+y_t = F_t\mu_t + v_t\\
+\mu_t = G_t\mu_{t-1} + w_t
+\end{align*}
+
+where at time $t$,
+
+* $y_t$ is the an $n \times 1$ observation vector.
+* $\mu_t$ is the $q \times 1$ latent state vector, where $q$ is the number of latent states.
+* $F_t$ is the $n \times q$ observation matrix.
+* $G_t$ is the $q \times q$ state transition matrix.
+
+We assume $v_t$ and $w_t$ are independent identically distributed with distributions $v_t \sim N(0, V)$ and $w_t \sim N(0,W)$ respectively (Harvey, 1990; Durbin and Koopman, 2012)
+.
+
+
+## State Space Model Illustration
+
+General Model:
+
+\begin{align*}
+y_t = F_t\mu_t + v_t\\
+\mu_t = G_t\mu_{t-1} + w_t
+\end{align*}
+
+![](images/hmm.jpg)
+
+
+
+
+
+## Proposed Model
+
+We wish to model the data according to a specific SSM, the Local Linear Trend Model (LLT),
+
+
+
+\begin{align*}
+y_{it} &= \alpha_{it} + x_{it}^T\beta_t
++ \varepsilon_t\\
+\mu_{it} =
+\begin{bmatrix}
+\alpha_{it}\\
+\beta_{t}
+\end{bmatrix} &= 
+\begin{bmatrix}
+\alpha_{i(t-1)}\\
+\beta_{(t-1)}
+\end{bmatrix} + 
+\begin{bmatrix}
+\eta_{it} \\
+0_{p \times 1}
+\end{bmatrix}
+\end{align*}
+
+
+
+Where $\alpha_0 \sim N(a_0, P_0)$, $\beta_0 \sim N(\beta, 0)$, $\varepsilon_{it} \sim N(0, \sigma^2_\varepsilon)$, and $\eta_{it} \sim N(0, \sigma^2_\eta)$.
+
+* $y_t$ is an $n \times 1$ observation vector where $n$ indicates the number of subjects.
+* $\alpha_t$ is an $n \times 1$ latent state vector.
+  * Variation in $\alpha_t$ over time creates a dynamic moving average auto-correlation between observations $y_t$.
+* $X_t$ is an $n \times p$ matrix of time varying covariates (can be $X_t = t * X$ where $X$ are baseline covarties).
+* $\beta_t$ is the linear effect of the columns in $X_t$.
+
+
+
+## What is $\alpha_t$
+
+Consider the model,
+
+\begin{align*}
+y_{it} &= \alpha_{it} + x_{it}^T\beta_t
++ \varepsilon_t\\
+\mu_{it} =
+\begin{bmatrix}
+\alpha_{it}\\
+\beta_{t}
+\end{bmatrix} &= 
+\begin{bmatrix}
+\alpha_{i(t-1)}\\
+\beta_{(t-1)}
+\end{bmatrix} + 
+\begin{bmatrix}
+\eta_{it} \\
+0_{p \times 1}
+\end{bmatrix}
+\end{align*}
+
+We can think of $\alpha_t$ as the underlying cognitive state not accounted for by covariates $X_t$. The $\alpha_t$ is there to capture unobserved effects on the outcome.
+
+Notice $\alpha_t|\alpha_{t-1} \sim N(\alpha_{t-1}, \sigma^2_\eta)$. This means our next underlying cognitive state will be centered at the previous underlying cognitive state.
+
+## Revisited Plot
+
+```{r, message=FALSE, echo = FALSE, fig.height=6}
+gridExtra::grid.arrange(p1, p2 + ggtitle("XB"), p3 + ggtitle("alpha"), layout_matrix = rbind(
+  c(1, NA),
+  c(2, 3)
+))
+```
+
+
+## Single subject from an LLT
+
+```{r, echo = FALSE, message = FALSE, fig.height=6}
+set.seed(1)
+n <- 1
+t <- 100
+y <- numeric(t)
+mu <- numeric(t)
+for(i in 1:t){
+  if(i == 1){
+    mu[i] <- rnorm(1, sd = 1)
+  }else{
+    mu[i] <- mu[i-1] + rnorm(1, sd = 5)
+  }
+  y[i] <- mu[i] + i + rnorm(1, sd = 1)
+}
+
+yd <- tibble(y, time = 1:t)
+
+p1 <- ggplot(yd, aes(x = time, y = y)) + 
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+    theme_classic()
+
+yd$resid <- resid(lm(y ~ time, data = yd))
+
+p2 <- ggplot(yd, aes(x = time, y = resid)) + 
+  geom_point() + geom_hline(yintercept = 0, color = "red") +
+    theme_classic()
+
+grid.arrange(p1, p2, nrow = 1)
+
+```
+
+```{r}
+sub <- "subject 4"
+
+totDat <- tgdat %>%
+  filter(subject == sub)
+
+
+allTime <- sort(totDat$time) %>%
+  unique()
+```
+
+## Auto-correlation
+
+The correlation between observations at any two time points is called the auto-correlation.
+
+Our proposed SSM model has the following auto correlation structure.
+
+
+\begin{align*}
+corr(y_{it}, y_{i(t+\tau)}) = \frac{t\sigma^2_\eta}{\sqrt{\sigma^2_\varepsilon + t\sigma^2_\eta}\sqrt{\sigma^2_\varepsilon + (t+\tau)\sigma^2_\eta}}
+\end{align*}
+
+This is equivalent to a dynamic moving average covariance structure. If $\sigma^2_\eta = 0$ then auto-correlation is 0 and our proposed model boils down to a LMEM.
+
+\begin{align*}
+y_t &= \alpha_0 + X_t\beta
++ \varepsilon_t\\
+\end{align*}
+
+
+## Accounting for Autocorrelation in LMEM Framework
+
+* Many different autocorrelation techniques have been used.
+* The a common practices has been to model an AR(1) covariance structure on the errors.
+
+
+
+\begin{equation*}
+\begin{aligned}
+y_t &= b_0 + X_t \beta + e_t, \ \ \ b_0\sim N(0, \sigma^2_b)\\
+e_t &= \rho e_{t-1} + \eta_t, \ \ \ \eta_t \sim N(0, \sigma^2_\eta), \ \ \ -1 < \rho < 1
+\end{aligned}
+\end{equation*}
+
+
+
+
+
+## Lots of Plots
+
+* The next few plots show the $E(Y_{t+\tau}|Y_t, \beta, X)$.
+* Illustrates the LLT allows for dynamic changes in predicted trajectory while the LMEM and LMEM with AR(1) are very restrictive. 
+
+
+
+
+```{r, results = "asis", cache = TRUE}
+
+
+
+
+gldat <- lmeDat %>%
+  mutate(id = NACCID) %>%
+  group_by(id) 
+
+
+tgldat <- gldat %>%
+  left_join(t6, "id") %>%
+  filter(!is.na(subject)) %>%
+  arrange(subject)
+
+
+sub <- "subject 4"
+
+totlDat <- tgldat %>%
+  filter(subject == sub)
+
+
+
+tlp <- map(seq_along(allTime), function(t){
+  utt <- totlDat %>%
+    filter(time <= allTime[t])
+  
+
+  td <- totlDat %>%
+    mutate(
+      Trajectory = PredVal,
+      PredNew = case_when(
+        time <= allTime[t] ~ PredVal
+      ) 
+    )
+  
+  
+  
+  td %>%
+    ggplot(aes(x = time, y = ANIMALS)) +
+    geom_point()  +
+    geom_line(aes(y = PredVal, color = subject), size = 2) +
+    geom_point(aes(y = PredNew, color = subject), size = 4, na.rm = TRUE) +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("") +
+    ggtitle(paste("LMEM:", "Observation =", t))
+})
+
+for(i in seq_along(allTime)){
+  cat("\n\n##\n\n")
+
+  print(tlp[[i]])
+
+}
+
+
+```
+
+
+
+
+
+```{r, results = "asis", cache = TRUE}
+Phi <- 0.3590755
+
+
+
+
+
+
+glARdat <- lmeARDat %>%
+  mutate(id = NACCID) %>%
+  group_by(id) 
+
+tglARdat <- glARdat %>%
+  left_join(t6, "id") %>%
+  filter(!is.na(subject)) %>%
+  arrange(subject)
+
+
+sub <- "subject 4"
+
+totlARDat <- tglARdat %>%
+  filter(subject == sub)
+
+
+
+
+
+
+
+tlARp <- map(seq_along(allTime), function(t){
+
+  td <- totlARDat %>%
+    group_by() %>%
+    mutate(
+      Trajectory = case_when(
+        allTime[t] == 0 ~ PredVal,
+        time < allTime[t] ~ PredVal,
+        time == allTime[t] ~ as.double(ANIMALS),
+        time > allTime[t] ~ PredVal + (ANIMALS[t] - PredVal[t]) * Phi^(time-time[t])
+      ) ,
+      PredNew = case_when(
+        time == 0 ~ PredVal,
+        time < allTime[t] ~ PredVal,
+        time == allTime[t] ~ as.double(ANIMALS)
+      ) 
+    )
+  
+  
+  
+  td %>%
+    ggplot(aes(x = time, y = ANIMALS)) +
+    geom_point()  +
+    geom_line(aes(y = Trajectory, color = subject), size = 2) +
+    geom_point(aes(y = PredNew, color = subject), size = 4, na.rm = TRUE) +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("") +
+    ggtitle(paste("LMEM AR(1):", "Observation =", t))
+})
+
+
+
+for(i in seq_along(allTime)){
+  cat("\n\n##\n\n")
+
+  print(tlARp[[i]])
+
+}
+
+```
+
+
+
+```{r, results = "asis", cache = TRUE}
+
+
+tp <- map(seq_along(allTime), function(t){
+  utt <- totDat %>%
+    filter(time <= allTime[t])
+  
+  al <- utt$alpha[nrow(utt)]
+  
+  td <- totDat %>%
+    mutate(
+      Trajectory = case_when(
+        time <= allTime[t] ~ PredVal,
+        TRUE ~ al + Xbeta
+      ),
+      PredNew = case_when(
+        time <= allTime[t] ~ PredVal
+      ) 
+    )
+  
+  
+  
+  td %>%
+    ggplot(aes(x = time, y = y)) +
+    geom_point()  +
+    geom_line(aes(y = Trajectory, color = subject), size = 2) +
+    geom_point(aes(y = PredNew, color = subject), size = 4, na.rm = TRUE) +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("") +
+    ggtitle(paste("LLT:", "Observation =", t))
+})
+
+for(i in seq_along(allTime)){
+  cat("\n\n##\n\n")
+
+  print(tp[[i]])
+
+}
+
+
+```
+
+
+
+
+
+```{r, eval = FALSE}
+mp <- map_df(seq_along(allTime), function(t){
+    utt <- totDat %>%
+      filter(time <= allTime[t])
+    
+    al <- utt$alpha[nrow(utt)]
+    
+    totDat %>%
+      mutate(
+        Trajectory = case_when(
+          time <= allTime[t] ~ PredVal,
+          TRUE ~ al + Xbeta
+        ),
+        PredNew = case_when(
+          time <= allTime[t] ~ PredVal
+        ),
+        NT = t
+      )
+    }) %>%
+    ggplot(aes(x = time, y = y)) +
+    geom_point()  +
+    geom_line(aes(y = Trajectory, color = subject), size = 2) +
+    geom_point(aes(y = PredNew, color = subject), size = 4, na.rm = TRUE) +
+    theme_classic() +
+    theme(legend.position = "none", axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    ylab("") +
+    # labs("Observation = {closest_state}") +
+    transition_manual(NT)
+
+animate(
+    plot = mp,
+    render = gifski_renderer(),
+    height = 600,
+    width = 800, 
+    duration = 5,
+    fps = 20)
+anim_save('my_gif.gif')
+library(gifski)
+```
+
+
+
+
+
+## LLT Estimation
+
+We can rewrite the proposed model to fit the state space model as follows,
+
+\begin{align*}
+y_t = 
+\begin{bmatrix}
+I_n & X_t
+\end{bmatrix}
+\begin{bmatrix}
+\alpha_t\\
+\beta_t
+\end{bmatrix}
++ \varepsilon_t\\
+\begin{bmatrix}
+\alpha_t\\
+\beta_t
+\end{bmatrix} = 
+\begin{bmatrix}
+I_{(n+p) \times (n+p)}
+\end{bmatrix}
+\begin{bmatrix}
+\alpha_{t-1}\\
+\beta_{t-1}
+\end{bmatrix} + 
+\begin{bmatrix}
+\eta_t \\
+0_{p \times 1}
+\end{bmatrix}
+\end{align*}
+
+
+
+\begin{columns}
+\begin{column}{0.35\textwidth}
+\begin{itemize}
+\item $F_t = \begin{bmatrix}I_n & X_t\end{bmatrix}$
+\item $v_t = \varepsilon_t$
+\item $w_t = \begin{bmatrix} \eta_t \\ 0_{p\times1} \end{bmatrix}$
+\end{itemize}
+\end{column}
+\begin{column}{0.35\textwidth}
+\begin{itemize}
+\item $\mu_t = \begin{bmatrix}\alpha_t \\ \beta_t\end{bmatrix}$
+\item $G_t = I_{(n+p) \times (n+p)}$
+\end{itemize}
+\end{column}
+\end{columns}
+
+
+## Kalman Filter
+
+The Kalman filter is a recursive algorithm to estimate the unobserved states conditioned on the observed data (Kalman, 1960; Durbin and Koopman, 2012). Let $\hat \mu_{i|j} = E(\mu_i|y_{1:j})$ and $P_{i|j} = var(\mu_i|y_{1:j})$.
+
+Predicted state: $\hat \mu_{t|t-1} = G_t \hat \mu_{t-1|t-1}$
+
+Predicted state covariance: $P_{t|t-1} = G_tP_{t-1|t-1}G_t' + W$
+
+Innovation covariance: $S_t = F_tP_{t|t-1}F_t' + V$
+
+Kalman Gain: $K_t = P_{t|t-1}F_t'S^{-1}_t$
+
+Innovation: $\tilde{f_t} = y_t - F_t \hat \mu_{t|t-1}$
+
+Updated state estimate: $\hat \mu_{t|t} = \hat \mu_{t|t-1} + K_t \tilde f_t$
+
+Updated state covariance: $P_{t|t} = (I- K_tF_t)P_{t|t-1}$
+
+Updated innovation: $\tilde f_{t|t} = y_t - F_t \hat \mu_{t|t}$
+
+## Kalman Smoother
+
+Let $J_t = P_{t|t} G_{t+1}' + P^{-1}_{t+1|t}$. We can then calculate $E(\mu_t|y_{1:T})$ and $var(\mu_t|y_{1:T})$ using the following Kalman smoother equations.
+
+
+\begin{align*}
+E(\mu_t|y_{1:T}) = \hat \mu_{t|t} + J_t (\hat \mu_{t+1|T} - \hat \mu_{t+1|t})\\
+var(\mu_t|y_{1:T}) = P_{t|t} - J_t G_{t+1} P_{t|t}
+\end{align*}
+
+
+## Setting Parameters
+
+We assume $\mu_0 \sim N(u_0, P_0)$, however $u_0$ and $P_0$ are unknown.
+
+* By initializing $u_0 = 0$ and $P_0 = \infty$ we are essentially putting a flat prior on $\mu_0$.
+* It has been shown $\hat \mu_{0|T}$ and $P_{0|T}$ quickly converge to $u_0$ and $P_0$ respectively for even small $T$ (Kalman, 1960; Durbin and Koopman, 2012).
+
+In our proposed model, $\mu_t = \begin{bmatrix}\alpha_t \\ \beta_t\end{bmatrix}$.
+
+* $\hat\beta_{0|T}$ is then our estimate for $\beta$ and has variance covariance $P_{\hat\beta} = [P_{0|T}]_{(n+1):(n+p),(n+1):(n+p)}$.
+* We can then use $\hat\beta_{0|T}$ and $P_{\hat\beta}$ for inference on $\beta$.
+  * $\hat \beta \mysim N(\beta, P_{\hat\beta})$.
+
+## Estimation of $\sigma^2_\varepsilon$ and $\sigma^2_\eta$
+
+* We get proper estimates for $\beta$ given we have correctly specified our model, including $\sigma^2_\varepsilon$ and $\sigma^2_\eta$.
+* The parameters $\sigma^2_\varepsilon$ and $\sigma^2_\eta$ are unknown, but can be estimated using Maximum Likelihood Estimation (MLE).
+
+\begin{align*}
+\ell(\sigma^2_\varepsilon, \sigma^2_\eta) = -\frac{np}{2}log(2\pi)-\frac{1}{2}\sum^t_{i=1}\big(log|\tilde S_i| + \tilde f_i` S_i^{-1} f_i)
+\end{align*}
+
+* To maximize the log-likelihood we used a Newton-Raphson method with a limited memory Broyden-Fletcher-Goldfarb-Shanno (L-BFGS) method (Liu and
+Nocedal, 1989; Zhou and Li, 2007).
+
+
+
+
+
+## Computational Challenges
+
+For each iteration of the Kalman filter we must invert $var(Y_t|y_{1:(t-1)}) = S_t$.
+
+* $S_t$ is non-sparse as calculating $var(Y_t|y_{1:(t-1)})$ is a function of $\beta_{t-1}$ which is shared between all observations.
+* $S_t$ is an $n \times n$, so as $n$ increases there is an exponential increase in computation time.
+
+## Solution 1: Partitioning
+
+A solution to solving inversion computational inefficiencies is to partition:
+
+* Partition the subjects into $k$ groups.
+* Run the Kalman filter and smoother on each group independently to extract $\hat\beta_{0|T}^{(i)}$ and $P_{\beta}^{(i)}$ for $i$ in $1, ..., k$.
+* Use the estimate $\bar\beta = \frac{\sum_{i=1}^k\hat\beta_{0|T}^{(i)}}{k}$.
+  * $\bar \beta \sim N(\beta, \frac{\sum_{i=1}^kP_{\hat\beta^{(i)}}}{k^2})$
+
+
+## Solution 2: Bayesian Gibb's Sampling Approach
+
+* For the Bayesian approach we use a Gibb's sampler.
+* Instead of calculating $\beta$ in the Kalman filter, we can estimate it separately.
+* The model,
+
+\begin{equation*}
+\begin{aligned}
+y_t &= \alpha_t + X_t \beta +\varepsilon_t\\
+\alpha_t &= \alpha_{t-1} + \eta_t
+\end{aligned}
+\end{equation*}
+
+## Gibb's Sampling
+
+* Gibb's sampling is a method to gain an approximate sample from a posterior distribution for a given variable (Gelfand-Smith, 1990).
+* It works by:
+  * calculating the distribution of a variable conditioned on all other unknown variables, known as the posterior distribution.
+  * sampling from the posterior distribution and assigning the new sample to the variable.
+  * calculate the posterior of the next variable and continue to sample, update, and recalculate the other posteriors.
+  * The process is commonly repeated thousands of times.
+* We need to calculate the posterior for $\alpha_{1:T}, \beta, \sigma^2_{\varepsilon}, \sigma^2_\eta$.
+
+
+## Posterior of $\alpha$
+
+* Notice, if we are conditioning on $\beta$ for the posterior $\alpha_{1:T}|...$ then each $y_{it}$ is independent and we can run the Kalman filter chains independently.
+* Let $y^*_t = y_t - X_t \beta$, then the model becomes
+  
+\begin{equation*}
+\begin{aligned}
+y^*_t &= \alpha_t +\varepsilon_t\\
+\alpha_t &= \alpha_{t-1} + \eta_t
+\end{aligned}
+\end{equation*}
+
+* We can then run a forward Kalman filter with a backward sampler to sample from the posterior of $\alpha_{1:T}$ (Fruhwirth-Schnatter, 1994)
+
+## Posterior of $\beta$
+
+* We let $\beta \sim N(\theta, \sigma^2_\beta)$
+*  The posterior is $\beta|... \sim N(\Sigma^{-1}B, \sigma^2_\varepsilon\sigma^2_\beta\Sigma^{-1})$ where,
+  * $B = \sigma^2_\beta\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t -\sigma^2_\varepsilon\theta$
+  * $\Sigma = \big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+\sigma^2_\varepsilon I_p$
+
+
+## The Gibbs Sampling Algorithm
+
+1. Select prior parameters for $\theta, \sigma^2_\beta, a_0, b_0, c_0, d_0$.
+2. Let $\beta^{(0)} = \theta$, $\sigma^{2(0)}_\eta = \frac{d_0/2}{1+c_0/2}$, and $\sigma^{2(0)}_\varepsilon = \frac{b_0/2}{1+a_0/2}$.
+3. Run a forward-filtering backward sampling procedure as described above conditioning on $\beta^{i-1}, \sigma^{2(i-1)}_\eta, \sigma^{2(i-1)}_\varepsilon$  and set the samples equal to $\alpha^{(i)}$ for the $i^{th}$ iteration.
+4. Sample $\sigma^{2*}_\eta$ from $IG(\frac{nT+a_0}{2}, \frac{\sum^T_{t=1} (\alpha^{(i)}_t-\alpha^{(i)}_{t-1})^2+b_0}{2})$ and set $\sigma^{2(i)}_\eta = \sigma^{2*}_\eta$.
+5. Sample $\sigma^{2*}_\varepsilon$ from $IG(\frac{nT+c_0}{2}, \frac{d_0 + \sum^T_{t=1}(y_t-X_t\beta^{(i-1)}-\alpha_t^{(i)})^2}{2})$ and set $\sigma^{2(i)}_\varepsilon = \sigma^{2*}_\varepsilon$. 
+6. Sample $\beta^*$ from $N(\Sigma^{-1}B, \sigma^2_\varepsilon\sigma^2_\beta\Sigma^{-1})$ where $\alpha = \alpha^{(i)}, \sigma^{2}_\eta = \sigma^{2(i)}_\eta, \sigma^{2}_\varepsilon=\sigma^{2(i)}_\varepsilon$ and set $\beta^{(i)} = \beta^*$.
+7. Repeat steps 3-6 for $i$ in 1, 2, ..., M.
+
+
+## Estimating $\beta$
+
+* After throwing out a number of initial samples from the Gibb's sampler we can estimate $\beta$ by taking the mean of the posterior samples.
+* We create a $95%$ credibility interval (as a pseudo-confidence interval) by calculating the $97.5^{th}$ and $2.5^{th}$ percentiles of the posterior draws.
+
+
+
+
+## Simulation Analyses
+
+* Conducted two separate simulation analyses.
+  1. Fully simulated data controlling the underlying data generation process.
+  2. Adding and estimating an effect on the Animals outcome where the underlying data generation process is unknown.
+* The most desirable model is one that,
+  * Maintains 95% coverage of true parameter.
+  * Is unbiased.
+  * Has small parameter variance (small 95% confidence intervals)
+
+
+
+## Simulation Study 1
+
+We sampled from the models,
+
+\begin{equation}
+\begin{aligned}
+y_t &= \alpha_t + X_t\beta + \varepsilon_t, & \varepsilon_t \sim N(0,\sigma_\varepsilon^2I_n)\\
+\alpha_t &= \alpha_{t-1} +\eta_t, & \eta_t \sim N(0,\sigma_\eta^2I_n)
+\end{aligned}
+\end{equation}
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= b_0 + X_t \beta + e_t, \ \ \ b_0\sim N(0, \sigma^2_b)\\
+e_t &= \rho e_{t-1} + \eta_t, \ \ \ \eta_t \sim N(0, \sigma^2_\eta) 
+\end{aligned}
+\end{equation}
+
+We simulated 100 subjects to have between 3-10 observations. $X$ was simulated to mirror our initial model of interest from the NACC. The variables $\sigma^2_\varepsilon$, $\sigma^2_\eta$, and $\rho$ varied between simulations. We compared 95% CI coverage, bias, and estimate variance between 1. LMEM with a random intercept, 2. LMEM with a random intercept and AR(1) error correlation structure, the matrix formulation of the state space model, the Bayesian estimated state space model, the a state space model partitioned into 2, 4, and 10 groups.
+
+```{r}
+bboy <- readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/Simulations/bboy.RDS")
+```
+
+
+## 95% Coverage
+
+
+```{r, eval = TRUE, fig.height=6}
+bboy %>%
+  group_by(Method,  sigeps, sigeta) %>%
+  summarise(Coverage = round(mean(Covered), 3)) %>%
+  spread("Method", "Coverage") %>%
+  .[c("sigeps", "sigeta","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")] %>%
+  kbl(row.names = FALSE,  longtable = TRUE, escape = FALSE,
+        col.names = c("$\\sigma^2_\\varepsilon$", "$\\sigma^2_\\eta$","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")) %>%
+  add_header_above(c("Variance\nParameters" = 2, "Traditional\nMethods" = 2,"State Space Methods" = 5)) %>%
+  kable_styling(font_size = 7)
+```
+
+
+## Bias and CI length
+
+```{r, warning = FALSE, message = FALSE}
+fdp1 <- bboy %>%
+  
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes')))  %>%
+  group_by(Method, plabel) %>%
+  summarise(Median = median(Bias), LCL = quantile(Bias, .025), UCL = quantile(Bias, 0.975)) %>%
+  ggplot(aes(x = Method, y = Median, shape = Method)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_errorbar(aes(ymin = LCL, ymax = UCL)) +
+  geom_point(aes(color = Method), size=5) +
+  facet_wrap(plabel ~ ., scales = "free_y", labeller=label_parsed) +
+  theme_classic()+
+  theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247"))  +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  ylab("Median Bias")
+```
+
+
+
+```{r}
+
+fdp2 <- bboy %>%
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes'))) %>%
+  # filter(Method != "Part10") %>%
+  group_by(Parameter, Simulation, Method, plabel, V1, V2) %>%
+  summarise(Median = median(CI.length), LCL = quantile(CI.length, .025), UCL = quantile(CI.length, 0.975)) %>%
+  group_by(plabel) %>%
+  mutate(
+    UCL = ifelse(
+      V1 == "3" & V2 == "2" & Method == "LLT", NA,
+      UCL
+    ),
+    ystart = ifelse(
+      V1 == "3" & V2 == "2" & Method == "LLT", LCL,
+      NA
+    ),
+    yend = ifelse(
+      V1 == "3" & V2 == "2" & Method == "LLT", max(UCL, na.rm = TRUE),
+      NA
+    )
+  ) %>%
+  ggplot(aes(x = Method, y = Median, color = Method, fill = Method, shape = Method)) + 
+  geom_errorbar(aes(ymin = LCL, ymax = UCL), color = "black") +
+  geom_segment(aes(y = ystart, yend = yend, xend = Method), color = "black") +
+  geom_point(aes(color = Method), size=5) +
+
+  facet_wrap(plabel ~ ., labeller=label_parsed, scales = "free_y") +
+  theme_classic()+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom",
+        strip.background = element_blank(), #maybe remove
+        strip.text.x = element_blank(), #maybe remove
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247")) +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  guides(colour = guide_legend(nrow = 1), title.position = "top") +
+  ylab("Median CI Length")
+
+
+```
+
+
+
+
+
+```{r, fig.cap = "Bias and confidence interval length", fig.height=6}
+grid.arrange(fdp1, fdp2, heights = c(1, 1.05))
+
+```
+
+
+
+
+
+
+## Real Data Simulation
+
+* Add a linear effect on the Animals outcome for half the subjects.
+* Estimate the model:
+
+\begin{equation*}
+\begin{aligned}
+\textbf{Updated Animals} \sim & (1 + \text{I\{Transitioned to MCI or Dementia\}} + \text{APOE}\\
+& + \text{Sex} + \text{APOE*Sex} + \text{Race} + \text{Age} + \text{Education}\\ 
+& + \textbf{Randomized Group}) * \text{Time}
+\end{aligned}
+\end{equation*}
+
+* Estimate the linear effect using the different models,
+ * LMEM, LMEM AR(1), Partitioned LLT with group size 100, and Bayesian LLT.
+ 
+ 
+ 
+```{r, include = FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(abind)
+theme_set(theme_bw())
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+```
+
+
+```{r}
+
+DateFolder <- paste("Simulations/RealDataSim/", "05172021", "/",sep = "") 
+
+fidf <- list.files(DateFolder, full.names = T)
+outSim <- map(fidf[grepl("outArray", fidf)], function(x){
+  readRDS(x)
+}) %>%
+  do.call("abind", .)
+
+
+
+Bval <- readRDS("NACC/sd1.RDS")
+```
+
+
+
+
+
+
+
+
+
+
+ 
+
+## Bias
+
+
+```{r, fig.cap = "Parameter bias", fig.height=6}
+outSim[,1,] %>%
+  t() %>%
+  as_tibble() %>%
+  rename("LMEM" = V1, "LMEM AR(1)" = V2, "Bayesian LLT" = V3, "Partition LLT" = V4) %>%
+  gather("Method", "Value", LMEM:`Partition LLT`) %>%
+  mutate(Method = factor(Method, levels = c("LMEM", "LMEM AR(1)", "Partition LLT", "Bayesian LLT"))) %>%
+  group_by(Method) %>%
+  summarise(Median = median(Value, na.rm = TRUE), LCL = quantile(Value, .025, na.rm = TRUE), UCL = quantile(Value, 0.975, na.rm = TRUE))  %>%
+  ggplot(aes(x = Method, y = Median, fill = Method, shape = Method))+
+  geom_hline(yintercept = Bval , color = "red") +
+  geom_errorbar(aes(ymin = LCL, ymax = UCL), size = 1) +
+  geom_point(aes(color = Method), size=10) +
+  theme_classic()+
+  theme(legend.position = "bottom")+
+  scale_color_manual(values = c("#405E92", "#408B92", "#DF9816", "#409247")) +
+  scale_shape_manual(values = c(15, 18, 7, 8))  +
+  ylab("Median Bias") 
+# +
+#   guides(colour = guide_legend(nrow = 1), title.position = "top")
+```
+
+
+## Coverage
+
+
+```{r}
+(outSim[,2,] < Bval & outSim[,3,] > Bval) %>%
+  apply(1, mean, na.rm = TRUE) %>%
+  data.frame() %>%
+  mutate(`.` = round(`.`, 3)) %>%
+  t() %>%
+  as_tibble() %>%
+  select(V1, V2, V4, V3) %>%
+  rename("LMEM" = V1, "LMEM AR(1)" = V2, "Bayesian LLT" = V3, "Partition LLT" = V4) %>%
+  kbl(longtable = TRUE, escape = FALSE) %>%
+  kable_styling()
+  
+```
+
+
+* When the underlying data generation process is unknown, the LLT models do a much better estimating the effect of interest.
+ 
+
+## Computation Time
+
+
+```{r}
+lf <- list.files("Simulations/ComputationSim4")
+names(lf) <- gsub(" .RDS", "", lf) %>%
+  gsub("CS ", "", .)
+tdat <- lf %>% 
+  map(~file.path("Simulations/ComputationSim4", .x)) %>%
+  map(readRDS) %>%
+  data.frame() %>%
+  gather("mi", "seconds") %>%
+  mutate(
+    sp = (str_split(mi, "[.]")),
+    method = map_chr(sp, 1),
+    n = map_chr(sp, 2) %>% as.integer()
+  ) %>%
+  select(method, n, seconds)
+```
+
+```{r compTime, fig.cap="Computation time comparison", fig.height=6}
+mymeth <- c("Full Likelihood", "Group Size 50", "Bayesian")
+names(mymeth) <- c("FL", "GS50", "Bayes")
+tdat %>%
+  group_by(method, n) %>%
+  summarise(seconds = median(seconds, na.rm = TRUE)) %>%
+  filter(n > 20) %>%
+  filter(method == "GS50" | method == "Bayes" | !(method == "FL" & n > 250)) %>%
+  mutate(method = factor(mymeth[method], levels = mymeth)) %>%
+  filter(!is.na(method)) %>%
+  ggplot(aes(x = n, y = seconds, color = method)) +
+  geom_point(aes(shape = method), size = 3) +
+  geom_line() +
+  xlab("Sample size") +
+  ylab("Median seconds") +
+  theme_classic()+
+  scale_color_manual(values = c("#DF3116",   "#DFB916", "#409247"))+
+  scale_shape_manual(values = c(10, 9, 8))
+```
+
+## Analysis
+
+On the NACC data set we fit the model:
+
+\begin{equation*}
+\begin{aligned}
+\text{Animals} \sim & (1 + \text{I\{Transitioned to MCI or Dementia\}} + \text{APOE} + \text{Sex}\\
+& + \text{APOE*Sex} + \text{Race} + \text{Age} + \text{Education}) * \text{Time}
+\end{aligned}
+\end{equation*}
+
+Using the LMEM, LMEM AR(1), and the Bayesian LLT Model.
+
+## Results
+
+```{r, include = FALSE}
+library(tidyverse)
+library(lme4)
+library(nlme)
+library(gridExtra)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+library(abind)
+```
+
+
+```{r, cache = TRUE, include = FALSE}
+
+knitr::opts_chunk$set(
+    # This should allow Rmarkdown to locate the data
+    root.dir = rprojroot::find_rstudio_root_file()
+)
+# load("NACC/Data/RData")
+# rm(list = ls()[ls() != "longdata"])
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+#Bins for histogram
+base_bins <- function(type) {
+  fun <- switch(type,
+    Sturges = nclass.Sturges,
+    scott = nclass.scott,
+    FD = nclass.FD,
+    stop("Unknown type", call. = FALSE)
+  )
+  
+  function(x) {
+    (max(x) - min(x)) / fun(x)
+  }
+}
+
+#Functions to remove missing code in tests
+m1 <- function(x){
+  ifelse(x %in% c(95, 96, 97, 98, -4), NA, x)
+}
+m2 <- function(x){
+  ifelse(x %in% c(995, 996, 997, 998, -4), NA, x)
+}
+
+
+# Read in NACC data
+longdata1 <- read.csv("NACC/Data2/investigator_nacc49.csv")
+
+longdata <- longdata1 %>%
+  #Select variables needed for this analysis
+  select(
+    NACCID, NACCUDSD, NACCFDYS, VISITYR, BIRTHYR, RACE, EDUC, SEX, NACCAPOE,
+    ANIMALS, NACCALZD
+  ) %>%
+  #Remove missing codes in tests
+  mutate_at(vars(ANIMALS), m1) %>%
+  #Select only those who are demented for each observation
+  group_by(NACCID) %>%
+  arrange(NACCID,NACCFDYS) %>%
+  filter(
+    !is.na(ANIMALS), !is.na(VISITYR), !is.na(BIRTHYR), !is.na(RACE), !is.na(EDUC), !is.na(SEX), !is.na(NACCAPOE)
+  ) %>%
+  arrange(NACCID, NACCFDYS) %>%
+  #Select those who started as normal and transitioned to impairment
+  filter(NACCUDSD[1] == 1 & any(NACCUDSD %in% c(3,4)), any(NACCALZD == 1)) %>%
+  #Derive additional variables
+  mutate(
+    time = NACCFDYS/365.25, 
+    AGE = VISITYR - BIRTHYR,
+    AgeBase = AGE[1],
+    RACEWHITE = ifelse(RACE == 1, 1, 0),
+    APOE = ifelse(NACCAPOE %in% c(2, 4), 1, ifelse(NACCAPOE == 9, NA, 0)),
+    SEX = SEX - 1,
+    APOESEX = APOE * (SEX),
+    Intercept = 1,
+    #Do they have an impairment
+    MCIoD = NACCUDSD %in% c(3,4),
+    FT = min(time[MCIoD]),
+    #All time past initial impairment
+    DEC = time >= FT,
+    #Did the subject ever go to impairment to non-impairment
+    reverter = MCIoD != DEC
+  ) %>%
+  arrange(NACCID, AGE)%>%
+  #Remove all reverters
+  filter(!any(reverter)) %>%
+  #Select all variables that will be used for modeling
+  select(NACCID, time,Intercept, ANIMALS, SEX, EDUC, RACEWHITE, AgeBase, DEC, APOE, APOESEX, NACCUDSD) %>%
+  na.omit() %>%
+  #Create knot for those when they transitioned
+  mutate(DEC = DEC * (time > 0) * (time - min(time[DEC > 0]))) %>%
+  ungroup(NACCID) %>%
+  mutate(A1 = AgeBase, E1 = EDUC, AgeBase = AgeBase - mean(AgeBase), EDUC = EDUC - mean(EDUC))
+
+
+knitr::opts_chunk$set(echo = FALSE)
+
+
+```
+
+
+
+
+
+
+```{r, cache = TRUE}
+source("functions/BayesKalmUneq2.R") 
+ld2 <- longdata  %>%
+  # mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = (APOE*2-1) * time, APOESEX = (APOESEX *2 -1), EDUC = EDUC * time, AgeBase = AgeBase * time)
+  mutate(SEX = SEX * time, RACEWHITE = RACEWHITE * time, APOE = APOE * time, APOESEX = APOESEX *time, EDUC = EDUC * time, AgeBase = AgeBase * time) 
+
+
+
+ld2$Intercept <- 1L
+Beta.Initial <- coef(lm(ANIMALS ~ (time + SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), data = ld2))
+
+```
+
+
+
+
+```{r, cache = TRUE, include = FALSE}
+set.seed(1234)
+
+Its <- 2000
+Burn <- floor(Its/2)
+
+bkout <- BayesKalm.Uneq(
+    y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c( "time", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]), id = ld2$NACCID, time = ld2$time,
+    Burn = Burn, Its = Its, 
+    Beta.Initial = Beta.Initial[-1], sigma2.beta = 20, 
+    u0 = 0, P0 = 100
+  )
+
+Beta.b <- bkout$Beta[,Burn:Its]
+alpha.b <- bkout$mu[,,Burn:Its]
+
+BetaMean <- apply(Beta.b, 1, mean)
+alphaMean <- apply(alpha.b, 1:2, mean)
+
+
+
+X.b <- bkout$X
+time.b <- bkout$timeMat
+id.b <- bkout$id
+y.b <- bkout$y
+
+XBetaAll <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% BetaMean)
+
+
+Preds <- map(1:dim(X.b)[3],  function(x) X.b[,,x] %*% Beta.b + alpha.b[,x,])
+
+PredVal <- Preds %>%
+  map(function(x){
+    apply(x, 1, function(y){
+      c(mean(y), quantile(y, c(.025, .975)))
+    })
+  })
+
+TimeMats <- map(1:length(PredVal), function(x){
+  cbind(data.frame(
+    id = id.b,
+    time = time.b[,x],
+    y = y.b[,x],
+    PredVal = PredVal[[x]][1,],
+    PredLCL = PredVal[[x]][2,],
+    PredUCL = PredVal[[x]][3,],
+    alpha = alphaMean[,x],
+    Xbeta = XBetaAll[[x]]
+  ), X.b[,,x])
+})
+
+
+CompleteData <- do.call("rbind", TimeMats)
+
+```
+
+
+```{r, cache=TRUE, include = FALSE}
+lmeMod <- lme(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), random =  ~1|NACCID, data = ld2, method = "ML", control = lmeControl(opt = "optim"))
+
+
+
+lmeDat <- ld2
+lmeDat$PredVal <- predict(lmeMod, lmeDat)
+```
+
+
+
+```{r, cache=TRUE, include = FALSE}
+lmeARMod <- lme(ANIMALS ~ (time +SEX + EDUC + RACEWHITE + AgeBase + DEC + APOE + APOESEX), correlation = corAR1(form = ~time), random =  ~1|NACCID, data = ld2, method = "ML")
+
+
+
+lmeARDat <- ld2
+lmeARDat$PredVal <- predict(lmeARMod, lmeARDat)
+```
+
+
+```{r, cache=TRUE, include = FALSE, eval = TRUE}
+source("functions/KalmanRegression2.R")
+source("functions/KalmanRecReform2.R")
+
+
+
+kp <- KalmanReg2(
+  y.long = ld2$ANIMALS, X.long = as.matrix(ld2[,c( "time", "SEX", "EDUC", "RACEWHITE", "AgeBase", "DEC", "APOE", "APOESEX")]), 
+  id = ld2$NACCID, time = ld2$time, 
+  Beta.Initial = Beta.Initial[-1], a1 = 0, P1 = 1e7, k = 25
+)
+
+
+```
+
+
+
+
+```{r effectTab}
+
+
+ModEs <- rbind(
+
+intervals(lmeMod)$fixed[c(8,9),] %>%
+  apply(1, function(x){
+    x <- round(x, 3)
+    paste(x[2], " (", x[1], ", ", x[3], ")", sep = "")
+  }),
+
+intervals(lmeARMod)$fixed[c(8,9),] %>%
+  apply(1, function(x){
+    x <- round(x, 3)
+    paste(x[2], " (", x[1], ", ", x[3], ")", sep = "")
+  }),
+  kp$summary[7:8,] %>%
+  apply(1, function(x){
+    x <- round(x, 3)
+    paste(x[1], " (", x[2], ", ", x[3], ")", sep = "")
+  }),  
+rbind(
+  apply(bkout$Beta[,Burn:Its], 1, mean)[c(7, 8)],
+  apply(bkout$Beta[,Burn:Its], 1, quantile, c(.025, .975))[,c(7, 8)]
+) %>%
+  apply(2, function(x){
+    x <- round(x, 3)
+    paste(x[1], " (", x[2], ", ", x[3], ")", sep = "")
+  })
+)
+
+colnames(ModEs) <- c("APOE", "APOE x Sex")
+
+row.names(ModEs) <- c("LMEM", "LMEM AR(1)", "Partition LLT", "Bayesian LLT")
+
+ModEs%>%
+  kbl(longtable = TRUE, escape = FALSE) %>%
+  kable_styling()
+
+
+```
+
+
+## Summary
+
+* The LLT shows proper 95% coverage for the fully simulated, even under model misspecification, and for the real NACC data.
+* When compared to the full data LLT, the partitioned LLT shows very similar results as long as the number of parameters estimated is reasonable for the group size.
+* The Bayesian LLT is the most desirable of the fitted models as it maintains 95% coverage, is unbiased, and has the smallest parameter variance.
+
+## Future Projects
+
+* Joint modeling of longitudinal outcomes using SSM framework.
+* Cluster analysis of longitudinal outcomes using SSM framework.
+
+
+## Joint Modeling
+
+
+\begin{align*}
+\begin{bmatrix}
+y_{1ti} \\
+y_{2ti} \\
+y_{3ti}
+\end{bmatrix} &=
+\begin{bmatrix}
+\mu_{1ti} \\
+\mu_{2ti} \\
+\mu_{3ti}
+\end{bmatrix} +
+x_{ti} \beta
+\begin{bmatrix}
+1 \\
+\gamma_2 \\
+\gamma_3
+\end{bmatrix} +
+\begin{bmatrix}
+\varepsilon_{1ti} \\
+\varepsilon_{2ti} \\
+\varepsilon_{3ti}
+\end{bmatrix} , \ \ \ \varepsilon \sim N(0, \sigma^2_\varepsilon)\\
+\begin{bmatrix}
+\mu_{1ti} \\
+\mu_{2ti} \\
+\mu_{3ti}
+\end{bmatrix} &= 
+\begin{bmatrix}
+\mu_{1(t-1)i} \\
+\mu_{2(t-1)i} \\
+\mu_{3(t-1)i}
+\end{bmatrix} + 
+\begin{bmatrix}
+\eta_{1ti} \\
+\eta_{2ti} \\
+\eta_{3ti}
+\end{bmatrix}, \ \ \ \eta_{.ti} \sim N(0,
+\begin{bmatrix}
+\sigma_{\eta11} & \sigma_{\eta12} &  \sigma_{\eta13}\\
+\sigma_{\eta12} & \sigma_{\eta22} &  \sigma_{\eta23}   \\
+\sigma_{\eta13} & \sigma_{\eta23} &  \sigma_{\eta33}
+\end{bmatrix}
+)
+\end{align*}
+
+## Cluster Analysis
+
+
+\begin{align*}
+\begin{bmatrix}
+y_{1ti} \\
+y_{2ti} \\
+y_{3ti} \\
+y_{4ti}
+\end{bmatrix} &=
+\begin{bmatrix}
+\mu_{1ti} \\
+\mu_{1ti} \\
+\mu_{2ti} \\
+\mu_{2ti}
+\end{bmatrix} +
+x_{it} \beta
+\begin{bmatrix}
+1 \\
+\gamma_2 \\
+\gamma_3 \\
+\gamma_4
+\end{bmatrix} +
+\begin{bmatrix}
+\varepsilon_{1ti} \\
+\varepsilon_{2ti} \\
+\varepsilon_{3ti} \\
+\varepsilon_{4ti}
+\end{bmatrix} , \ \ \ \varepsilon \sim N(0, \sigma^2_\varepsilon)\\
+\begin{bmatrix}
+\mu_{1ti} \\
+\mu_{2ti}
+\end{bmatrix} &= 
+\begin{bmatrix}
+\mu_{1(t-1)i} \\
+\mu_{2(t-1)i}
+\end{bmatrix} + 
+\begin{bmatrix}
+\eta_{1ti} \\
+\eta_{2ti}
+\end{bmatrix}, \ \ \ \eta_{.ti} \sim N(0,
+\begin{bmatrix}
+\sigma_{\eta11} & \sigma_{\eta12}\\
+\sigma_{\eta12} & \sigma_{\eta22}
+\end{bmatrix}
+)
+\end{align*}
+
+
+
+## Projected Timeline
+
+* Currently writing up project 1.
+* Project 2 to be completed during fall 2021.
+* Project 3 to be completed during spring 2022.
+* Defense in the summer of 2022.
+
+
+
+
+## Thank you!
+
+* Recommendations?
+* Questions?
+

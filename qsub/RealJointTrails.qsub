@@ -1,0 +1,12 @@
+#!/bin/bash -l
+
+#$ -P jointage
+#$ -l h_rt=96:00:00
+#$ -j y
+# Start several jobs (job array)
+#$-t 1-100
+
+
+module load R/4.0.2 
+cd ..
+Rscript Simulations/RealJointTrails.R

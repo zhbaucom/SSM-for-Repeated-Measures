@@ -1,0 +1,30 @@
+---
+output:
+  pdf_document: 
+    latex_engine: xelatex
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{amsmath}
+---
+
+## Data and Model of Interest
+
+### Data
+
+Data collected by the National Alzheimer's Coordinating Center (NACC) Uniform Data Set Version 2.0 (UDS, September 2014) was used to test the proposed LLT model validity. Criteria for entry into the analysis requires Alzheimer's disease participants to have transitioned from cognitively normal to mild cognitive impairment (MCI) or Dementia during the NACC follow-up period. This results in 1,269 participants with an average of 6.6 return visits (SD = 3.1) seen over a period of 6.7 years (SD = 3.4). The average transition from cognitively normal to MCI or Dementia occurs at 4.9 visits (SD = 2.8). In this sample 36.0% of the subjects carry at least 1 APOE e4 allele. The average study participants are predominantly female (63.9%) and of white ethnicity (87.3%). Participants are primarily older with an average age of 77.1 years old (SD = 8.2) and have an average of 16.0 years of education (SD = 6.5).
+
+### Model of Interest {#MOI}
+
+The Animals test outcome, in which participants have one minute to name as many animals as possible, was used as the cognitive outcome of interest (mean = 16.6, SD = 5.7). After controlling for dementia status (1 = diagnosed with MCI or dementia, 0 = otherwise), sex (1 = female, 0 = male), race (1 = white, 0 = other), age (mean centered), and education (mean centered), we wish to accurately estimate the effect of having an APOE e4 allele (1 = has at least 1 APOE e4 allele, 0 = otherwise) on the Animals test trajectory. Previous research suggests that the effect of APOE e4 status differs between males and females, therefore an interaction between e4 status and sex is included in the model. To measure the effect of the dependent variables on the Animals test trajectory, all dependent variables are put into the model as an interaction with time.

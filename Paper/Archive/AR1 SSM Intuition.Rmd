@@ -1,0 +1,43 @@
+---
+output: html_document
+---
+
+# Model Intuition
+
+
+ 
+Autocorrelation can be thought of as the effect of unobserved time-varying variables (UTV) on the outcome. Both the AR(1) and SSM make different assumptions on the behavior of the UTV. The AR(1) holds the rather strict assumption that the UTV effect will revert to the levels they held at an often arbitrary time of the initial observation. The SSM shows flexibility in letting the UTV effect vary freely over time and assumes that the UTV effect at time $t+1$ will be centered at their effect levels at time $t$, rather than the mean reverting. This situation is more tractable in application.
+
+The UTV effect assumption of the LME model assumes a deterministic long term trajectory if you know a subjects random intercept and covariates. Additional data on how the subject is performing cognitively does not change the long term trajectory. The SSM, however, allows for the long term cognitive trajectory to change based on observed data.
+
+LME AR(1):
+
+\begin{align*}
+y_t &= b_0 + X_t \beta + e_t, \ e_t = e_{t-1} + \epsilon_t\\
+E(Y_{t+\tau}|y_t) &= b_0 + X_{t+\tau} \beta + \rho^\tau e_t \rightarrow b_0 + X_{t+\tau}\beta
+\end{align*}
+
+
+SSM:
+
+
+\begin{align*}
+y_t &= \alpha_t + X_t \beta + \varepsilon_t, \ \alpha_t = \alpha_{t-1} + \eta_t\\
+E(Y_{t+\tau}|y_t) &= \alpha_t + X_{t+\tau} \beta
+\end{align*}
+
+
+---------GARBAGE
+
+The NACC data set was used to answer if those with APOE have a different rate of cognitive decline among those who have dementia. To gauge this effect we fit a linear mixed effect (LME) model with a subject specific random intercept controlling for interactions with time and sex, education, and age at baseline. 
+
+For neuropsychological outcomes, temporal autocorrelation can arise due to time varying unmeasured confounders effect on the outcome.
+
+
+The proposed state space model approach offers a more intuitive and realistic representation of autocorrelation across time. The SSM assumes that cognitive tests aim to measure the true underlying cognitive ability of a subject at time $t$. This underlying cognitive ability would be expected to fluctuate over time as it may be related to some unobserved time varying confounders. These confounders may be a biological process, social factors, economic factors, etc. More fluctuation in the unobserved confounders would cause the underlying state to vary wildly over time, whereas, smaller incremental changes in the unobserved confounders would cause a more stable cognitive ability over time, both of which can be easily modeled by the SSM.
+
+
+
+Although the LME AR(1) model has proven effective in modeling autocorrelation, the intuition is much more complicated. In the AR(1) model, how well a subject performed on a test at time $t$ depends on how they randomly performed at time $t-1$, instead of the true underlying cognitive ability. If we write an LME AR(1) model in a state space model format we arrive to a completely unintuitive form.
+
+

@@ -1,0 +1,328 @@
+---
+title: "LME vs SS Model"
+author: "Zach"
+date: "10/25/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(gridExtra)
+library(lme4)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+
+
+
+
+
+## Simulation Results {.tabset}
+
+
+```{r}
+SimPrefix <- "ItoutNACC4 "
+
+flist <- list.files("Simulations/SimOutReform")
+flist <- flist[grepl(SimPrefix,flist)]
+B <- readRDS("NACC/B.RDS")
+SimList <- map(flist, ~readRDS(paste("Simulations/SimOutReform/",.x, sep = "")))
+# map(Itout, "Fails")
+names(SimList) <- flist
+
+```
+
+
+### Total Coverage
+
+```{r}
+
+x <- flist[1]
+
+
+Coverage <- sapply(flist, function(x){
+  Itout <- SimList[[x]] 
+  Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 2, mean, na.rm = TRUE) 
+
+  Vars <- x %>% 
+    gsub(SimPrefix, "", .) %>%
+    gsub(".RDS", "", .) %>%
+    str_split(" ") %>%
+    .[[1]] %>%
+    gsub("_", ".", .) %>%
+    as.numeric()
+    c(round(Vars, 1), round(Coverage, 3))
+  
+}) %>% 
+  t()
+
+
+
+colnames(Coverage) <- c("sigeps", "sigeta","LME", "AR(1)", "SSM", "Bayes", "Part2", "Part4", "Part10") 
+
+
+Coverage[,c("sigeps", "sigeta","LME", "AR(1)", "SSM", "Part2", "Part4", "Part10", "Bayes")] %>%
+  data.frame() %>%
+  rownames_to_column("SimScen") %>%
+  mutate(sigeps = as.character(sigeps), sigeta = as.character(sigeta)) %>%
+  mutate(
+    sigeps = case_when(
+      is.na(sigeps) ~ "1",
+      TRUE ~ sigeps
+    ),
+    sigeta = case_when(
+        is.na(sigeta) & grepl("Small", SimScen) ~ "$\\rho = 0.1$",
+        is.na(sigeta) & grepl("Medium", SimScen) ~ "$\\rho = 0.5$",
+        is.na(sigeta) & grepl("Large", SimScen) ~ "$\\rho = 0.9$",
+      TRUE ~ sigeta
+    )
+  ) %>%
+  select(-SimScen) %>%
+  kable(row.names = FALSE, escape = FALSE,
+        col.names = c("$\\sigma^2_\\varepsilon$", "$\\sigma^2_\\eta$","LME", "AR(1)", "SSM", "Bayes", "Part2", "Part4", "Part10")) %>%
+  add_header_above(c("Variance\nParameters" = 2, "Traditional\nMethods" = 2,"State Space Methods" = 5)) %>%
+  kable_styling()
+```
+
+
+
+
+
+```{r, results = "asis", fig.width = 20, fig.height = 20, warning = FALSE, message = FALSE}
+
+for(i in seq_along(B)){
+  
+  cat("\n")
+  cat("### B", i)
+  cat("\n")
+  cat("####", "Coverage")
+  cat("\n")
+  cat("\n")
+  x <- flist[1]
+  Coverage <- sapply(flist, function(x){
+    Itout <- SimList[[x]] 
+    Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE)[i,] 
+
+    Vars <- x %>% 
+      gsub(SimPrefix, "", .) %>%
+      gsub(".RDS", "", .) %>%
+      str_split(" ") %>%
+      .[[1]] %>%
+      gsub("_", ".", .) %>%
+      as.numeric()
+      c(round(Vars, 1), round(Coverage, 3))
+    
+  }) %>% 
+    t()
+  
+  
+  
+  colnames(Coverage) <- c("sigeps", "sigeta","LME", "AR(1)", "SSM", "Bayes", "Part2", "Part4", "Part10") 
+  
+  
+  Coverage[,c("sigeps", "sigeta","LME", "AR(1)", "SSM", "Part2", "Part4", "Part10", "Bayes")] %>%
+    data.frame() %>%
+    rownames_to_column("SimScen") %>%
+    mutate(sigeps = as.character(sigeps), sigeta = as.character(sigeta)) %>%
+    mutate(
+      sigeps = case_when(
+        is.na(sigeps) ~ "1",
+        TRUE ~ sigeps
+      ),
+      sigeta = case_when(
+          is.na(sigeta) & grepl("Small", SimScen) ~ "$\\rho = 0.1$",
+          is.na(sigeta) & grepl("Medium", SimScen) ~ "$\\rho = 0.5$",
+          is.na(sigeta) & grepl("Large", SimScen) ~ "$\\rho = 0.9$",
+        TRUE ~ sigeta
+      )
+    ) %>%
+    select(-SimScen) %>%
+    kable(row.names = FALSE, escape = FALSE,
+          col.names = c("$\\sigma^2_\\varepsilon$", "$\\sigma^2_\\eta$","LME", "AR(1)", "SSM", "Bayes", "Part2", "Part4", "Part10")) %>%
+    add_header_above(c("Variance\nParameters" = 2, "Traditional\nMethods" = 2,"State Space Methods" = 5)) %>%
+    kable_styling() %>%
+    print()
+  
+  
+  
+    cat("\n")
+    cat("####", "Bias")
+    cat("\n")
+    
+    outb <- lapply(flist, function(x){
+     Vars <- x %>% 
+      gsub("ItoutPaper ", "", .) %>%
+      gsub(".RDS", "", .) %>%
+      str_split(" ") %>%
+      .[[1]] %>%
+      gsub("_", ".", .)
+  
+      Itout <- SimList[[x]]
+      Bias <- Itout$Estimate - B
+  
+      vb <- lapply(1:dim(Bias)[1], function(x)t(Bias[x,,]))
+      VarBias <- data.frame(do.call("rbind", vb))
+      
+      VarBias$Variable <- sort(rep(paste("B", seq_along(B), sep = ""), dim(Bias)[3]))
+      
+      
+      
+      colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+      
+      VarBias %>%
+        data.frame() %>%
+        gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+        mutate(Method = fct_case_when(
+          Method == "LME" ~ "LME",
+          Method == "LME.AR.1." ~ "LME AR(1)",
+          Method == "SS.Orig" ~ "SS Original",
+          Method == "SS.Bayes" ~ "SS Bayes",
+          Method == "SS.Part.2" ~ "SS Part k = 2",
+          Method == "SS.Part.4" ~ "SS Part k = 4",
+          Method == "SS.Part.10" ~ "SS Part k = 10"
+        ),
+        sig2eps = Vars[1], sig2eta = Vars[2], Vars = paste("$\\sigma^2_{\\epsilon} = ", Vars[1], ", \ \\sigma^2_{\\eta} = ", Vars[2], "$", sep = ""),
+        ) %>%
+        mutate(
+          Vars = case_when(
+            grepl("Small", x) ~ "$\\rho = 0.1$",
+            grepl("Medium", x) ~ "$\\rho = 0.5$",
+            grepl("Large", x) ~ "$\\rho = 0.9$",
+            TRUE ~ Vars
+          )
+        ) %>%
+        # mutate(Vars = TeX(Vars)) %>%
+        filter(Variable == paste("B", i, sep = ""))
+    
+      }) %>%
+      do.call("rbind", .) %>%
+      mutate(Method = factor(Method, levels = c("LME", "LME AR(1)", "SS Original", "SS Part k = 2", "SS Part k = 4", "SS Part k = 10", "SS Bayes"))) %>%
+      mutate(Vars = as.factor(Vars)) %>%
+      group_by(Vars, Method) %>%
+      filter(!is.na(Bias)) %>%
+      filter(Bias < quantile(Bias, .90) & Bias > quantile(Bias, .10)) %>%
+      ungroup(Vars, Method)
+  
+
+  
+  levels(outb$Vars) <- TeX(levels(outb$Vars))
+  outb$Vars <- factor(outb$Vars, levels = levels(outb$Vars)[c(
+    which(!grepl("rho", levels(outb$Vars))),
+    which(grepl("rho", levels(outb$Vars)))
+  )])
+  
+  
+  pbias <- ggplot(outb, aes(x = Method, y = Bias, fill = Method)) + 
+    geom_violin() + 
+    stat_summary(fun=median, geom="point", shape=18, size=5) +
+    geom_hline(yintercept = 0 , color = "red") +
+    facet_wrap((Vars) ~ ., scales = "free_y",
+    labeller=label_parsed)+
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+  print(pbias)
+    
+  
+  cat("\n")
+  cat("\n")
+  cat("####", "CI Length")
+  cat("\n")
+    
+    
+    
+    outci <- lapply(flist, function(x){
+      Vars <- x %>% 
+        gsub("ItoutPaper ", "", .) %>%
+        gsub(".RDS", "", .) %>%
+        str_split(" ") %>%
+        .[[1]] %>%
+        gsub("_", ".", .)
+    
+      Itout <- SimList[[x]]
+      CIlen <- Itout$UCL -Itout$LCL
+      # CIlen1 <- t(CIlen[1,,])
+      # CIlen2 <- t(CIlen[2,,])
+      # CIlen3 <- t(CIlen[3,,])
+      # CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+      cilen <- lapply(1:dim(CIlen)[1], function(x)t(CIlen[x,,]))
+      CIlenTot <- data.frame(do.call("rbind", cilen))
+      
+      
+    
+    CIlenTot$Variable <- sort(rep(paste("B", seq_along(B), sep = ""), dim(CIlen)[3]))
+    
+    
+    
+    colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+    
+    outci <- CIlenTot %>%
+      data.frame() %>%
+      gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+      mutate(Method = fct_case_when(
+        Method == "LME" ~ "LME",
+        Method == "LME.AR.1." ~ "LME AR(1)",
+        Method == "SS.Orig" ~ "SS Original",
+        Method == "SS.Bayes" ~ "SS Bayes",
+        Method == "SS.Part.2" ~ "SS Part k = 2",
+        Method == "SS.Part.4" ~ "SS Part k = 4",
+        Method == "SS.Part.10" ~ "SS Part k = 10"
+      ),
+        sig2eps = Vars[1], sig2eta = Vars[2], Vars = paste("$\\sigma^2_{\\epsilon} = ", Vars[1], ", \ \\sigma^2_{\\eta} = ", Vars[2], "$", sep = "")) %>%
+        mutate(
+          Vars = case_when(
+            grepl("Small", x) ~ "$\\rho = 0.1$",
+            grepl("Medium", x) ~ "$\\rho = 0.5$",
+            grepl("Large", x) ~ "$\\rho = 0.9$",
+            TRUE ~ Vars
+          )
+        ) %>%
+      filter(Variable == paste("B",i, sep = ""))
+    }) %>%
+    do.call("rbind", .) %>%
+    mutate(Method = factor(Method, levels = c("LME", "LME AR(1)", "SS Original", "SS Part k = 2", "SS Part k = 4", "SS Part k = 10", "SS Bayes")))%>%
+    mutate(Vars = as.factor(Vars)) %>%
+    group_by(Vars, Method) %>%
+    filter(!is.na(CI.Length)) %>%
+    filter(CI.Length < quantile(CI.Length, .90) & CI.Length > quantile(CI.Length, .10)) %>%
+    ungroup(Vars, Method)
+  
+  levels(outci$Vars) <- TeX(levels(outci$Vars))
+  
+  outci$Vars <- factor(outci$Vars, levels = levels(outci$Vars)[c(
+    which(!grepl("rho", levels(outci$Vars))),
+    which(grepl("rho", levels(outci$Vars)))
+  )])
+  
+  pci <- outci %>%
+    # filter(!(Method %in% c("LME", "LME AR(1)"))) %>%
+    ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+    geom_violin() + 
+    stat_summary(fun=median, geom="point", shape=18, size=5) +
+    facet_wrap((Vars) ~ ., scales = "free_y",
+    labeller=label_parsed)+
+    theme(axis.title.x=element_blank(),
+          axis.text.x=element_blank(),
+          axis.ticks.x=element_blank())
+  print(pci)
+  cat("\n")
+
+
+
+
+}
+```
+
+
+

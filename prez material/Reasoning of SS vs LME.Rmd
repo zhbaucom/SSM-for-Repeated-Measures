@@ -1,0 +1,553 @@
+---
+title: "State Space vs. Linear Mixed Effect Models"
+output:
+  html_document:
+    toc: true
+    toc_float:
+      collapsed: false
+      smooth_scroll: false
+    toc_depth: 2
+    css: "css/my.style.css"
+---
+
+
+# Motivation
+
+The state space model we wish to implement is,
+
+
+\begin{equation}
+\begin{aligned}
+y_{it} &= \mu_{it} + \varepsilon_{it}\\
+\mu_{it} &= \mu_{i(t-1)} + x_{i}^T\beta + \eta_{i(t-1)}\\
+\text{Where,}\\
+& \varepsilon_{it} \sim iid \ N(0,\sigma^2_{\varepsilon}), \ \ \eta_{it}\sim iid \  N(0,\sigma^2_{\eta}), \ \ \mu_0 \sim \ iid \ N(a_0, [P_0]_{ii})
+\end{aligned}
+\end{equation}
+
+
+Next we calculate the mean, variance, and correlation of each observation under this model.
+
+
+\begin{equation}
+\begin{aligned}
+E(y_{it}) &= E(\mu_{it} + \varepsilon_{it}) \\
+&= E(\mu_{i(t-1)} + x_{i}^T\beta + \eta_{i(t-1)} + \varepsilon_{it}) \\
+&= E(\mu_0 + tx_{i}^T\beta +\sum_{j = 1}^t\eta_{ij} + \varepsilon_{it}) \\
+&= E(\mu_0 + tx_{i}^T\beta )\\
+&= a_0 + tx_{i}^T\beta 
+\end{aligned}
+\end{equation}
+
+
+
+
+
+\begin{equation}
+\begin{aligned}
+var(y_{it}) &= var(\mu_{it}+\varepsilon_{it})\\
+ &= var(\mu_{it}) + \sigma^2_\varepsilon\\
+ &= var(\mu_{i(t-1)} + \eta_{i(t-1)}) +\sigma^2_\varepsilon\\
+&= var(\mu_{i(t-1)}) + \sigma_\eta^2+\sigma^2_\varepsilon\\
+&= t\sigma_\eta^2+\sigma^2_\varepsilon + var(\mu_0)\\
+&= t\sigma_\eta^2+\sigma^2_\varepsilon + [P_0]_{ii}\\ \\
+cov(y_{i(t+p)}, y_{it}) &= cov(\mu_{i(t+p)} + \varepsilon_{i(t+p)}, \mu_{it} + \varepsilon_{it})\\
+&= cov(\mu_{i(t+p)}, \mu_{it}) \\
+&= cov(\mu_{i(t+p-1)} + \eta_{i(t+p-1)}, \mu_{it})\\
+&= cov(\mu_{i(t+p-1)}, \mu_{it})\\
+&= var(\mu_{it})\\
+&= t\sigma_\eta^2 + [P_0]_{ii} \\ \\
+corr(y_{i(t+p)}, y_{it}) &= \frac{t\sigma_\eta^2 + [P_0]_{ii}}{\sqrt{t\sigma_\eta^2+\sigma^2_\varepsilon +[P_0]_{ii}}\sqrt{(t+p)\sigma_\eta^2+\sigma^2_\varepsilon +[P_0]_{ii}}}\\
+corr(y_{i(t+p)}, y_{it}|\mu_0) &= \frac{t\sigma_\eta^2}{\sqrt{t\sigma_\eta^2+\sigma^2_\varepsilon }\sqrt{(t+p)\sigma_\eta^2+\sigma^2_\varepsilon}}
+\end{aligned}
+\end{equation}
+
+
+
+If $\sigma^2_\eta = 0$ then $corr(y_{i(t+p)}, y_{it}) = \frac{[P_0]_{ii}}{\sigma^2_\varepsilon + P_0}$. If we condtion on $\mu_{0i}$ and $\sigma^2_\eta = 0$ then $corr(y_{i(t+p)}, y_{it} | \mu_0) = 0$.
+
+If $p \rightarrow \infty$ then $corr(y_{i(t+p)}, y_{it}) = 0$.
+
+
+Under the assumption of the linear mixed effect model: $y_{it} = \beta_0 + tx_{i}^T\beta + b_{0i} + \varepsilon_{it}$ where $b_{0i}\sim N(0, \sigma^2_b)$. This can be viewed in terms of the SS model where $\beta_0 = a_0$, $\sigma^2_b = [P_0]_{ii}$, and $b_{0i} = \mu_{0i}-a_0$. Here $E(y_{it}) = a_0 + tx_{i}^T\beta$.
+
+The variance under the model $y_{it} = \beta_0 + tx_{i}^T\beta + b_{0i} + \varepsilon_{it}$ is $var(y_{it}) = [P_0]_{ii} + \sigma^2_{\varepsilon}$. This matches up with the state space model given $\sigma^2_\eta = 0$. However, if $\sigma^2_{\eta} \neq 0$ the variance will be underestimated.
+
+Therefore, the LME model with a random intercept is a special case of the SS model. SS model is more flexible in that it can handle autocorrelation between observations after conditioning on $\mu_0$.
+
+
+# General State Space Model
+
+We can write the SS model in a general form,
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= 
+\begin{bmatrix}
+I_n & 0
+\end{bmatrix}
+\begin{bmatrix}
+\mu_t\\
+\beta
+\end{bmatrix}
++\varepsilon_t, & \varepsilon_t \sim N(0,\sigma_\varepsilon^2I_n)\\
+\begin{bmatrix}
+\mu_t\\
+\beta
+\end{bmatrix}
+& = 
+\begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix} 
+\begin{bmatrix}
+\mu_{t-1}\\
+\beta
+\end{bmatrix}
++\eta_t, & \eta_t \sim N(0,\sigma_\eta^2\begin{bmatrix}I_n & 0\\ 0 & 0\end{bmatrix})\\
+\mu_0 &\sim N(a_0, P_0) \ \ P_0 = diag(p_0)
+\end{aligned}
+\end{equation}
+
+
+We wish to estimate $\beta$ and to accomplish this we use the Kalman Filter. Through the filter we are able to calculate $\hat\beta|(Y_t = [y_1, ..., y_t])$.
+
+
+In order to define the Kalman filter let,
+
+
+\begin{equation}
+\begin{aligned}
+Q &= \sigma^2_\eta\begin{bmatrix}I_n & 0\\ 0 & 0\end{bmatrix}\\
+R &= I_{n+p}\\
+T &= 
+\begin{bmatrix}
+I_n & X\\
+0 & I_p
+\end{bmatrix}\\
+H & = \sigma^2_{\varepsilon} I_n\\
+Z & = \begin{bmatrix}I_n & 0\end{bmatrix}
+\end{aligned}
+\end{equation}
+
+
+We first calculate the forward recursions,
+
+
+\begin{align}
+
+v_t &= y_t - Z 
+\begin{bmatrix}
+\tilde\mu_t\\
+\tilde\beta
+\end{bmatrix},
+ &F_t& = Z P_t Z' + H
+\\
+K_t &= T P_tZ'F_t^{-1}, &L_t& = T-K_tZ
+\\
+
+\begin{bmatrix}
+\tilde\mu_{t+1}\\
+\tilde\beta
+\end{bmatrix}
+& = T
+\begin{bmatrix}
+\tilde\mu_{t}\\
+\tilde\beta
+\end{bmatrix} 
++ K_tv_t, &P_{t+1} &= TP_tL_t' + Q
+\end{align}
+
+
+Where $\tilde\mu_t$ and $\tilde\beta$ are the estimates for $\mu_t$ and $\beta$ respectively given $Y_t$.
+
+Next the backward,
+
+
+\begin{align}
+r_{t-1} &= Z'F_t^{-1}v_t +L_t'r_t, &N_{t-1} &= Z'F_t^{-1}Z + L_t'N_tL_t\\
+\begin{bmatrix}
+\hat\mu_{t}\\
+\hat\beta
+\end{bmatrix}
+& = 
+\begin{bmatrix}
+\tilde\mu_{t}\\
+\tilde\beta
+\end{bmatrix}
++ P_tr_{t-1}, &V_t&=P_t-P_tN_{t-1}P_t
+\end{align}
+
+
+Where $\hat\mu_t$ and $\hat\beta$ are the estimates for $\mu_t$ and $\beta$ respectively given all the observations.
+
+# Comparing SS and LME models
+
+In this sections we run simulations to compare accuracy of the LME model and the more general state space model for different values of $\sigma^2_\varepsilon$ and $\sigma^2_\eta$. As shown above, when $\sigma^2_\eta = 0$ the LME and SS methods boil down to the same models. As $\sigma^2_\eta$ increases the LME model becomes mispecified.  
+
+## Simulation Overview
+
+The number of subjects in all simulations is 10 with each one having 3 covariates and measurements at time 1-4.
+
+First, the covariates $X = [X_1 \ X_2 \ X_3]$ were simulated which is a 10x3 matrix. $X_{ij} \ iid\sim N(0,1)$.  Then $Y$ was simulated which is a 10x4 matrix for the 10 subjects and 4 measurement times. $Y$ is simulated using the model.
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= 
+\mu_t
++\varepsilon_t, & \varepsilon_t \sim N(0,\sigma_\varepsilon^2I_n)\\
+\mu_t
+& = 
+\mu_{t-1} 
++ X\beta
++\eta_t, & \eta_t \sim N(0,\sigma_\eta^2\begin{bmatrix}I_n & 0\\ 0 & 0\end{bmatrix})\\
+\mu_0 &\sim N(0, I_n), &\beta = [4 \ \ \ \ 2 \ -1]'
+\end{aligned}
+\end{equation}
+
+
+This process is repeated 100 times for fixed values of $\sigma^2_\varepsilon$ and $\sigma^2_\eta$.
+
+Once the data was simulated both the Kalman filter and the LME model were computed on the same data. For the Kalman filter a custom function was used and for the LME the `lmer` function from the `lme4` package was used. 
+
+### Filter Specifications.
+
+When running the Kalman filter I set $P_0 = diag(100)$ as it should iterate down to the correct variance. The estimate $\hat\beta$ was used from the first backward iteration. The variance for $\hat\beta$ came from the first backward iteration of $V$. The CI is then $\hat\beta \pm z_{.975}\sqrt{var(\hat\beta)}$.
+
+## Results
+
+### Using True $\sigma^2_\varepsilon$ and $\sigma^2_\eta$
+
+I started by using the true values of $\sigma^2_\varepsilon$ and $\sigma^2_\eta$ in the filter rather than estimating them using maximum likelihood. This was done to gauge accuracy before implementing the estimation of these parameters.
+
+
+
+```{r, include = FALSE}
+### Set working directory to correct location
+cdir <- stringr::str_split(getwd(), "/")[[1]]
+udir <- cdir[1:which(cdir == "State-Space-Methods")]
+setwd(paste(udir, collapse = "/"))
+
+set.seed(24)
+library(knitr)
+library(tidyselect)
+library(tidyverse)
+library(microbenchmark)
+library(lme4)
+library(nlme)
+source("functions/stateSpaceSim.R")
+source("functions/KalmanRegression.R")
+source("functions/KalmanRecEffic.R")
+source("functions/BigSim.R")
+opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE, cache.path = "CACHED RESULTS/")
+
+#Set initial parameters
+n <- 10
+B <- c(4,2,-1)
+p <- length(B)
+t <- 4
+P1 <- 1
+a1 <- 0
+It <- 100
+```
+
+<hr> 
+
+<br>
+
+#### $\sigma^2_\varepsilon = 10$ and $\sigma^2_\eta = 0.001$
+
+<br>
+
+```{r}
+sigma2.eps.test <- 10
+sigma2.eta.test <- 0.001
+
+
+SSarray <- LMEarray <- ARarray <- array(NA, dim = c(length(B), 3, It))
+sigMat <- matrix(NA, It, 2)
+
+for(i in 1:It){
+  BigOut <- Big.Sim()
+  SSarray[,,i] <- BigOut[[1]]
+  LMEarray[,,i] <- BigOut[[2]]
+  # ARarray[,,i] <- BigOut[[3]]
+  sigMat[i,] <- BigOut[[4]]
+}
+
+ssdf <- Summary.Fun(SSarray)
+lmedf <- Summary.Fun(LMEarray)
+# (ardf <- Summary.Fun(ARarray))
+
+
+ 
+```
+
+
+##### SS Model
+
+```{r}
+kable(ssdf)
+```
+
+##### LME Model
+
+```{r}
+kable(lmedf)
+```
+
+##### SE Difference
+
+```{r}
+data.frame(
+  `SE For SS` = ssdf$Average.SE,
+  `SE for LME` = lmedf$Average.SE,
+  `Ratio` = ssdf$Average.SE/lmedf$Average.SE
+) %>%
+  kable()
+
+```
+
+
+<hr> 
+
+<br>
+
+#### $\sigma^2_\varepsilon = 10$ and $\sigma^2_\eta = 1$
+
+<br>
+
+
+```{r}
+sigma2.eps.test <- 10
+sigma2.eta.test <- 1
+
+
+SSarray <- LMEarray <- ARarray <- array(NA, dim = c(length(B), 3, It))
+sigMat <- matrix(NA, It, 2)
+
+for(i in 1:It){
+  BigOut <- Big.Sim()
+  SSarray[,,i] <- BigOut[[1]]
+  LMEarray[,,i] <- BigOut[[2]]
+  # ARarray[,,i] <- BigOut[[3]]
+  sigMat[i,] <- BigOut[[4]]
+}
+
+ssdf <- Summary.Fun(SSarray)
+lmedf <- Summary.Fun(LMEarray)
+# (ardf <- Summary.Fun(ARarray))
+
+
+ 
+
+```
+
+
+##### SS Model
+
+```{r}
+kable(ssdf)
+```
+
+##### LME Model
+
+```{r}
+kable(lmedf)
+```
+
+##### SE Difference
+
+```{r}
+data.frame(
+  `SE For SS` = ssdf$Average.SE,
+  `SE for LME` = lmedf$Average.SE,
+  `Ratio` = ssdf$Average.SE/lmedf$Average.SE
+) %>%
+  kable()
+
+```
+
+<hr> 
+
+<br>
+
+#### $\sigma^2_\varepsilon = 10$ and $\sigma^2_\eta = 5$
+
+<br>
+
+```{r}
+sigma2.eps.test <- 10
+sigma2.eta.test <- 5
+
+
+SSarray <- LMEarray <- ARarray <- array(NA, dim = c(length(B), 3, It))
+sigMat <- matrix(NA, It, 2)
+
+for(i in 1:It){
+  BigOut <- Big.Sim()
+  SSarray[,,i] <- BigOut[[1]]
+  LMEarray[,,i] <- BigOut[[2]]
+  # ARarray[,,i] <- BigOut[[3]]
+  sigMat[i,] <- BigOut[[4]]
+}
+
+ssdf <- Summary.Fun(SSarray)
+lmedf <- Summary.Fun(LMEarray)
+# (ardf <- Summary.Fun(ARarray))
+
+
+ 
+
+```
+
+
+##### SS Model
+
+```{r}
+kable(ssdf)
+```
+
+##### LME Model
+
+```{r}
+kable(lmedf)
+```
+
+##### SE Difference
+
+```{r}
+data.frame(
+  `SE For SS` = ssdf$Average.SE,
+  `SE for LME` = lmedf$Average.SE,
+  `Ratio` = ssdf$Average.SE/lmedf$Average.SE
+) %>%
+  kable()
+
+```
+
+<hr>
+
+<br>
+
+#### $\sigma^2_\varepsilon = 10$ and $\sigma^2_\eta = 10$
+
+<br>
+
+```{r}
+sigma2.eps.test <- 10
+sigma2.eta.test <- 10
+
+
+SSarray <- LMEarray <- ARarray <- array(NA, dim = c(length(B), 3, It))
+sigMat <- matrix(NA, It, 2)
+
+for(i in 1:It){
+  BigOut <- Big.Sim()
+  SSarray[,,i] <- BigOut[[1]]
+  LMEarray[,,i] <- BigOut[[2]]
+  # ARarray[,,i] <- BigOut[[3]]
+  sigMat[i,] <- BigOut[[4]]
+}
+
+ssdf <- Summary.Fun(SSarray)
+lmedf <- Summary.Fun(LMEarray)
+# (ardf <- Summary.Fun(ARarray))
+
+
+ 
+
+```
+
+
+##### SS Model
+
+```{r}
+kable(ssdf)
+```
+
+##### LME Model
+
+```{r}
+kable(lmedf)
+```
+
+##### SE Difference
+
+```{r}
+data.frame(
+  `SE For SS` = ssdf$Average.SE,
+  `SE for LME` = lmedf$Average.SE,
+  `Ratio` = ssdf$Average.SE/lmedf$Average.SE
+) %>%
+  kable()
+
+```
+
+<hr>
+
+<br>
+
+#### $\sigma^2_\varepsilon = 1$ and $\sigma^2_\eta = 10$
+
+<br>
+
+```{r}
+sigma2.eps.test <- 1
+sigma2.eta.test <- 10
+
+
+SSarray <- LMEarray <- ARarray <- array(NA, dim = c(length(B), 3, It))
+sigMat <- matrix(NA, It, 2)
+
+for(i in 1:It){
+  BigOut <- Big.Sim()
+  SSarray[,,i] <- BigOut[[1]]
+  LMEarray[,,i] <- BigOut[[2]]
+  # ARarray[,,i] <- BigOut[[3]]
+  sigMat[i,] <- BigOut[[4]]
+}
+
+ssdf <- Summary.Fun(SSarray)
+lmedf <- Summary.Fun(LMEarray)
+# (ardf <- Summary.Fun(ARarray))
+
+
+ 
+
+```
+
+
+##### SS Model
+
+```{r}
+kable(ssdf)
+```
+
+##### LME Model
+
+```{r}
+kable(lmedf)
+```
+
+##### SE Difference
+
+```{r}
+data.frame(
+  `SE For SS` = ssdf$Average.SE,
+  `SE for LME` = lmedf$Average.SE,
+  `Ratio` = ssdf$Average.SE/lmedf$Average.SE
+) %>%
+  kable()
+
+```
+
+
+
+
+
+
+
+

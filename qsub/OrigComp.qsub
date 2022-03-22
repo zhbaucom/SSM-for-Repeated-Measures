@@ -1,0 +1,13 @@
+#!/bin/bash -l
+
+#$ -P jointage
+#$ -l h_rt=96:00:00
+#$ -m e
+#$ -j y
+# Start several jobs (job array)
+#$-t 1-4
+
+
+module load R
+cd ..
+Rscript Simulations/OrigComp.R

@@ -1,0 +1,217 @@
+---
+output: pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+---
+
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(eval = FALSE)
+library(gridExtra)
+library(lme4)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+setwd("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/")
+source("functions/BayesKalmUneq2.R") #Holds the Bayesian Kalman Regression
+source("functions/ss.simp.sim.R") #To simulate the data
+
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, cache = TRUE)
+
+B <- readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+```
+
+
+
+## Simulation Controlling Underlying Data Generation Process
+
+```{r, echo = FALSE}
+B <- readRDS("NACC/B.RDS")
+```
+
+The fully simulated data analysis allows for insight into model behavior under different levels of model misspecification as well as confirming model accuracy. For this study we compare the proposed LLT methods to an LMEM with a random intercept and a random intercept LMEM with an AR(1) auto-correlation structure. Data for this simulation emulates the model of interest, using a simulated Animals test score as the outcome and simulated independent variables time, sex, education, race, age, transition to MCI or dementia, APOE status, and an APOE status by sex interaction. For each simulation, 100 participants are created. Each subject has 2 to 10 cognitive scores at possible observation times 0 through 9. The "true" linear effects are $\boldsymbol{\beta} = [$`r paste(round(B, 3), collapse = ", ")`$]^T$. The values for $\boldsymbol{\beta}$ in the simulations are the same as the model of interest (section \@ref(MOI)) linear effect estimates from a multiple linear regression using the NACC data set. Under each simulation scenario the linear effects are estimated using an LMEM with random intercept, an LMEM with an AR(1) auto-correlation structure, the full likelihood LLT (FL LLT), partitioned LLT with 2 groups (Part 2), partitioned LLT with 4 groups (Part 4), partitioned LLT with 10 groups (Part 10), and the Bayesian LLT (BLLT).
+
+When the underlying data generating process follows that of the LLT it has the form,
+
+
+\begin{equation*}
+\begin{aligned}
+y_{ij} =  \alpha_{ij} + \boldsymbol{x}_{ij}\boldsymbol{\beta} + \varepsilon_{ij}, \ \ \ \varepsilon_{ij} \sim N(0,\sigma^2_\varepsilon \boldsymbol{I}_n)\\
+\alpha_{ij} =  \alpha_{i(j-1)} + \eta_{ij}, \ \ \ \eta_{ij} \sim N(0,\sigma^2_\eta \boldsymbol{I}_n)\\
+\end{aligned}
+\end{equation*}
+
+for $i \in \{1, 2, ..., 100\}$. Multiple simulation scenarios are created by altering $\sigma^2_\varepsilon$ and $\sigma^2_\eta$ which will either increase or decrease the amount of auto-correlation in the data. For the LLT data generation, the variance parameters $(\sigma^2_\varepsilon, \sigma^2_\eta)$ take on the values (3, 0), (3, 1), (3, 2), (3, 3), (30, 10), and (60, 20).
+
+When the underlying data generation process is an LMEM with an AR(1) variance structure it has the form,
+
+
+\begin{equation*}
+\begin{aligned}
+y_{ij} &=  b_0 + \boldsymbol{x}_{ij} \boldsymbol{\beta} + \epsilon_{ij}, \ \ \ b_0 \sim N(0, \boldsymbol{I}_n)\\ 
+\epsilon_{ij} &= \rho \ \epsilon_{i(j-1)} + e_{ij},\ \ \ e_{ij} \sim N(0, \boldsymbol{I}_n)
+\end{aligned}
+\end{equation*}
+
+Under this scheme there are three scenarios of varying $\rho = 0, 0.1, \text{and } 0.5$.
+
+Each simulation scenario is repeated 1000 times. The main metrics of interest are 95% confidence interval coverage, bias evaluation, and confidence interval length. In order to make proper inference, the 95% confidence intervals should cover the parameter of interest approximately 95% of the time. Proper coverage indicates proper probability of type I error, or probability of rejecting a null hypothesis given the null hypothesis is true. Once type I error is established, we typically wish to minimize the probability of type II error, or the probability of not rejecting a null hypothesis given the null hypothesis is false. To minimize probability of type II error we desire low parameter variance which corresponds to shorter confidence interval length. If type I error is maintained for an unbiased estimator, than a smaller confidence interval leads to higher power. Note, confidence interval length was chosen over the more common parameter variance because the Bayesian LLT uses an empirical pseudo 95% confidence interval from the parameter posterior draws rather than the traditional Frequentist variance estimation.
+
+
+The Bayesian LLT uses the following prior distributions,
+
+
+\begin{equation*}
+\begin{aligned}
+\alpha_0 &\sim N(0, 10), \ \ \ &\boldsymbol{\beta} &\sim N(0, 10)\\
+\sigma^2_\varepsilon &\sim IG(0.005, 0.005),  &\sigma^2_\eta &\sim IG((0.005, (0.005)
+\end{aligned}
+\end{equation*}
+
+After 2,000 posterior draws for the unknown parameters, samples 1 through 1,000 are discarded as a "burn-in" sample and samples 1,001 through 2000 are used to make parameter inference.
+
+
+
+### Fully Simulated Data Results
+
+The LME and LMEM with an AR(1) temporal correlation structure both maintain 95% parameter coverage when the model is correctly specified. However, as the variance of the latent state ($\sigma^2_\eta$) increases there is evident under coverage. The LLTs maintain near 95% coverage even when the underlying data generating process is that of an AR(1) with $\rho = 0.5$, suggesting the LLT models are more robust to model misspecification. 
+
+All methods show unbiasedness under each simulation scenario. Of the state space models the Bayesian estimation process has the smallest variability in effect estimates and closely rivals that of the LMEMs. The partitioned state space model with 10 groups shows high estimate volatility, however, when there are 2 or 4 groups the estimate resemble the full data model. This suggest that if the number of estimated parameters is reasonable compared to the group size, then partitioning will decrease computation time without sacrificing much in terms of estimation.
+
+Among the LLT methods, the Bayesian LLT estimation also maintains the smallest confidence interval length for the linear effect parameters, which translates to higher power. The LMEM methods have an even smaller confidence interval length, but because the LMEM methods do not have the correct 0.05 probability of type I error the comparison is inconsequential. 
+
+
+
+
+
+
+```{r}
+bboy <- readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/Simulations/bboy.RDS") %>%
+  mutate(sigeps = gsub("1 = 1", "2 = 1", sigeps))
+```
+
+
+
+```{r, eval = TRUE}
+bboy %>%
+  group_by(Method,  sigeps, sigeta) %>%
+  summarise(Coverage = round(mean(Covered), 3)) %>%
+  spread("Method", "Coverage") %>%
+  mutate(Mod = ifelse(grepl("varepsilon", sigeps), "LLT", "AR(1)")) %>%
+  .[,c("Mod","sigeps", "sigeta","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")] %>%
+  kbl(row.names = FALSE,  longtable = TRUE, escape = FALSE, caption = "Combined linear effect coverage proportion. The LMEM methods fail to maintain 95 percent coverage when the true data generation process is that of an LLT. The LLT estimation procedures, however, maintain near 95 percent coverage even under model mispecification.",
+        col.names = c("","", " ","LME", "AR(1)", "FL LLT", "Part 2", "Part 4", "Part 10", "BLLT")) %>%
+  add_header_above(c("Simulation\nModel" = 1, "Variance\nParameters" = 2, "Traditional\nMethods" = 2,"State Space Methods" = 5)) %>%
+  kable_styling()
+```
+
+
+```{r}
+fdp1 <- bboy %>%
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes')))  %>%
+  group_by(Method, plabel) %>%
+  summarise(Median = median(Bias), LCL = quantile(Bias, .025), UCL = quantile(Bias, 0.975)) %>%
+  mutate(plabel = factor(plabel, levels = unique(plabel)[c(2,3,1)])) %>%
+  ggplot(aes(x = Method, y = Median, shape = Method)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_errorbar(aes(ymin = LCL, ymax = UCL)) +
+  geom_point(aes(color = Method), size=5) +
+  facet_wrap(plabel ~ ., scales = "free_y", labeller=label_parsed) +
+  theme_classic()+
+  theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247"))  +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  ylab("Median Bias")
+```
+
+
+
+```{r}
+
+fdp2 <- bboy %>%
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  # mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes'))) %>%
+  mutate(Method = case_when(
+    as.character(Method) == "LLT" ~ "FL LLT",
+    as.character(Method) == "Part2" ~ "Part 2",
+    as.character(Method) == "Part4" ~ "Part 4",
+    as.character(Method) == "Part10" ~ "Part 10",
+    as.character(Method) == "Bayes" ~ "BLLT",
+    TRUE ~ as.character(Method)
+  ) %>% factor(levels = c("LME", "AR(1)", "FL LLT", "Part 2", "Part 4", "Part 10", "BLLT"))) %>%
+  # filter(Method != "Part10") %>%
+  group_by(Parameter, Simulation, Method, plabel, V1, V2) %>%
+  summarise(Median = median(CI.length), LCL = quantile(CI.length, .025), UCL = quantile(CI.length, 0.975)) %>%
+  mutate(plabel = factor(plabel, levels = unique(plabel)[c(2,3,1)])) %>%
+  group_by(plabel) %>%
+  mutate(
+    UCL = ifelse(
+      V1 == "3" & V2 == "2" & Method == "FL LLT", NA,
+      UCL
+    ),
+    ystart = ifelse(
+      V1 == "3" & V2 == "2" & Method == "FL LLT", LCL,
+      NA
+    ),
+    yend = ifelse(
+      V1 == "3" & V2 == "2" & Method == "FL LLT", max(UCL, na.rm = TRUE),
+      NA
+    )
+  ) %>%
+  ggplot(aes(x = Method, y = Median, color = Method, fill = Method, shape = Method)) + 
+  geom_errorbar(aes(ymin = LCL, ymax = UCL), color = "black") +
+  geom_segment(aes(y = ystart, yend = yend, xend = Method), color = "black") +
+  geom_point(aes(color = Method), size=5) +
+
+  facet_wrap(plabel ~ ., labeller=label_parsed, scales = "free_y") +
+  theme_classic()+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom",
+        strip.background = element_blank(), #maybe remove
+        strip.text.x = element_blank(), #maybe remove
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247")) +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  guides(colour = guide_legend(nrow = 1), title.position = "top") +
+  ylab("Median CI Length")
+
+
+```
+
+
+
+
+
+```{r, fig.cap = "Bias and confidence interval length with imperical 95 percent confidence interval. All estimation methods show unbiasedness. Of the LLT procedures, the Bayesian LLT has the least amount of variablity in the estimates. The LMEM methods have the smallest confidence interval length, but do not maintain 95 percent coverage. Among the methods that do cover at 95 percent (the LLTs), the Bayesian LLT has the smallest confidence interval length across the different scenarios.", fig.height=3.5}
+grid.arrange(fdp1, fdp2, heights = c(1, 1.05))
+```
+

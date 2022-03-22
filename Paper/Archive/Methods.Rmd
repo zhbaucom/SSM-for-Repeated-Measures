@@ -1,0 +1,425 @@
+---
+title: "Untitled"
+author: "Zach"
+date: "12/16/2020"
+output: pdf_document
+bibliography: bibliography.bib
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{amsmath}
+- \newcommand\mysim{\mathrel{\stackrel{\makebox[0pt]{\mbox{\normalfont\tiny asym}}}{\sim}}}
+---
+
+# Methods
+
+## Data
+
+1,643 subjects from the NACC who started cognitively normal and transitioned to either MCI or Dementia. An average of 6.25 visits per subjects. There was a minimum of 2 visits and a maximum of 15 IQR 8-4.63.8% male, 85.8% white, 34.0% APOE e4 carriers, average starting age of 76.3, average education of 15.9 years.
+
+Data collected by the National Alzheimer's Coordinating Center (NACC) Uniform Data Set Version 2.0 (UDS, September 2014) was used to test the proposed LLT model validity. The NACC was established by the National Institute of Aging in 1990 is an effort to centralize AD-related clinical and neuropsychological data from 34 different research facilities [@NACC]. Participants from the varying research facilities are offer a battery of neuropyschological tests to gain insight into underlying cognitive ability. 
+
+Criteria for entry into this analysis requires the subject to have transitioned from cognitively normal to mild cognitive impairment (MCI) or Dementia during the subject's follow-up period in the NACC. Study participants are predominantly male (63.8%)!!!!DOUBLE CHECK CODING!!!!!! and of white ethnicity (85.8%). Participants are primarily older with an average age of 76.7 years old (SD = 9.3) and have an average of 15.9 years of education (SD = 6.9). A primary research question is whether cognitive trajectory differs between APOE carrier. 34.0% of the subjects carry at least 1 APOE e4 allele.
+
+The Animals test, in which subjects name as many animals as possible in one minute, is the primary outcome of interest (mean = 16.8, SD = 5.7). This test is one of the few offered in the battery without a truncated distribution. Truncation in the outcome can lead to biased estimates when treating an outcome as continuous, as is done with the standard LMEM. For the real data simulation analysis a linear effect generated for half the subjects was added to the Animals test. By randomly adding a linear effect to the outcome we are able to show model appropriateness when the underlying data generating distribution is unknown.
+
+Fully simulated data was generated to compare general estimation accuracy under incorrect and correct model specification. Each simulation consisted of 100 subjects with 2-10 observations. Each predictor was simulated to roughly resemble predictors use in the real data analysis.
+
+## General Linear Gaussian State Space Model
+
+To understand our proposed model we first introduce the general linear state space model and the estimation process. Suppose you have observations for $n$ subjects at times $t \in \{1, 2, ..., T\}$. We denote the outcome vector for the $n$ subjects at time $t$ as $y_t$ and for our purposes assume that $y_t$ is continuous. A general linear state space model can be denoted as:
+
+
+\begin{align*}
+y_t &= F_t\mu_t + v_t, \ \ \ v_t \sim N(0, V_t)\\
+\mu_t &= G_t\mu_{t-1} + w_t, \ \ \ w_t \sim N(0,W_t) \ \ \& \ \ \mu_0 \sim N(u, P)
+\end{align*}
+
+
+
+
+Both $v_t$ and $w_t$ are independent. The $q\times 1$ vector $\mu_t$ is the unobserved latent state vector where $q$ is the number of latent states. From this formulation we see that the observed value of $y_t$ is a linear combination of $\mu_t$ after being transformed by the observation matrix $F_t$, which we assume is known, plus some random noise $v_t$. Furthermore, we assume $\mu_t$ follows a random walk through time where $\mu_t$ is a linear function of $\mu_{t-1}$ in the form $G_t\mu_{t-1}$ plus some random noise $w_t$. The matrix $G_t$ is the state transition matrix and assumed to be known. This state space model can be regarded as a Hidden Markov model with continuous latent states and continuous observations.
+
+For our purposes, we can think of $\mu_t$ as the components of someones underlying cognition. One's underlying cognitive ability may vary randomly through time where they have longer periods of being well and other periods of not doing so well. For an observational study we then come up with a test to measure the underlying cognition $\mu_t$. This test takes into account different parts of cognition through the transformation $F_t$ plus some random error. In this way we are simply tapping into the underlying cognition to get our observation vector $y_t$.
+
+For a fixed $F_t$, $G_t$, $V_t$, $W_t$, $u$, and $P$ we can utilize the popular Kalman Filter and Kalman Smoother to calculate $\hat{\mu}_{t|T} = E(\mu_t|y_{1:T})$ and $P_{t|T} = \text{Var}(\mu_t|y_{1:T})$. The Kalman filter is a recursive algorithm to estimate the unobserved states conditioned on the observed data $y_{1:T} = \{y_1, y_2, ..., y_T\}$ (Kalman, 1960; Durbin and Koopman, 2012). Let $\hat \mu_{i|j} = E(\mu_i|y_{1:j})$ and $P_{i|j} = \text{Var}(\mu_i|y_{1:j})$. The filter proceeds as follows:
+
+
+
+* Predicted state: $\hat \mu_{t|t-1} = G_t \hat \mu_{t-1|t-1}$
+* Predicted state covariance: $P_{t|t-1} = G_tP_{t-1|t-1}G_t' + W$
+* Innovation covariance: $S_t = F_tP_{t|t-1}F_t' + V$
+* Kalman Gain: $K_t = P_{t|t-1}F_t'S^{-1}_t$
+* Innovation: $\tilde{f_t} = y_t - F_t \hat \mu_{t|t-1}$
+* Updated state estimate: $\hat \mu_{t|t} = \hat \mu_{t|t-1} + K_t \tilde f_t$
+* Updated state covariance: $P_{t|t} = (I- K_tF_t)P_{t|t-1}$
+* Updated innovation: $\tilde f_{t|t} = y_t - F_t \hat \mu_{t|t}$
+
+
+
+The Kalman Filter results in $\hat{\mu}_{t|t}$ and $P_{t|t}$ for $t \in \{1, 2, 3, ..., T\}$. To find the expected value and variance of the unobserved states conditioned on all the data we iterate backwards through the Kalman Smoother. By letting $J_t = P_{t|t} G_{t+1}' + P^{-1}_{t+1|t}$ we can compute the following.
+
+\begin{align*}
+\hat \mu_{t|T} &= \hat \mu_{t|t} + J_t (\hat \mu_{t+1|T} - \hat \mu_{t+1|t})\\
+P_{t|T} &= P_{t|t} - J_t G_{t+1} P_{t|t}
+\end{align*}
+
+
+Proper estimates for $\mu_t$ depend on correctly specifying parameters, including $V_t$, $W_t$, $u$, and $P$. For our purposes, the matrices $F_t$ and $G_t$ are fixed by design. $V_t$ and $W_t$ can be estimated by maximizing their joint log-likelihood.
+
+\begin{align*}
+\ell(\sigma^2_\varepsilon, \sigma^2_\eta) = -\frac{np}{2}log(2\pi)-\frac{1}{2}\sum^t_{i=1}\big(log|\tilde S_i| + \tilde f_i` S_i^{-1} f_i)
+\end{align*}
+
+Typically, (1) the Kalman Filter and Smoother are computed, (2) the log-likelihood is computed then maximized, then we iterate through (1) and (2) until a convergence criteria is met.
+
+Dealing with the initial parameters $\mu_0$, namely the mean $u$ and variance $P$, tends to be more simple. It can be shown that by giving $\mu_0$ an "infinite prior" of $P = \infty$ and $u = 0$, after only a few iterations our estimates $P_{i|j}$ converge to the values they would have taken if we would have started with the true $P$ and $u$.
+
+
+# Proposed Model For Neuropsychological Outcomes
+
+We propose the following as a flexible alternative to a linear mixed effect model,
+
+\begin{align*}
+y_t &= \alpha_t + X_t \beta_t
++ \varepsilon_t, \ \ \  \varepsilon_t \sim N(0, \sigma^2_\varepsilon I_n)\\
+\alpha_t &= \alpha_{t-1} + \eta_t, \ \ \ \eta_t \sim N(0, \sigma^2_\eta I_n) \ \& \ \alpha_0 \sim N(a_0, P_0)\\
+\beta_t &= \beta_{t-1}, \ \ \ \beta_0 \sim N(\beta, 0)
+\end{align*}
+
+
+
+The $X_t$ is an $n \times p$ matrix of predictors at time $t$, where the $i^{th}$ row is the $i^{th}$ subject's predictors. We assume $\beta_t$ is a $p \times 1$ vector that remains fixed over time and follows the same linear fixed effect interpretation as a similar linear regression or linear mixed effect model. The proposed model differs from traditional models in that there is a randomly varying underlying $\alpha_t$ that follow a random walks through time. With respect to $y_t$, $\alpha_t$ follows a random walk about $X_t \beta_t$ and therefore can be interpreted as random variation in cognition not accounted for by the predictors in $X_t$.
+
+Notice, $E(\alpha_t|\alpha_{t-1}) = \alpha_{t-1}$. This indicates that the underlying variations in one's cognitive state at time $t$, not accounted for by the predictors $X_t$, depends on their underlying cognitive state at time $t-1$. This creates a Markov Chain trend in a subject's underlying cognition.
+
+We also make the assumption that $\alpha_{i,t}$ is independent from $\alpha_{i',t}$ for $i\ne i'$ and $i, i' \in \{1, 2, ..., n\}$, meaning the underlying variation about the trend $X_t\beta$ is independent between subjects. Therefore, the chain of $\alpha_{i,1:T}$ is a random walk specific to subject $i$. The parameter $\beta_t$, however, is shared between each subject.
+
+
+### Autocorrelation
+
+Our proposed model implies a flexible dynamic moving average auto-correlation structure. The correlation between any two time points for subject $i$ is defined as,
+
+\begin{align*}
+corr(y_{it}, y_{i(t+\tau)}) = \frac{t\sigma^2_\eta}{\sqrt{\sigma^2_\varepsilon + t\sigma^2_\eta}\sqrt{\sigma^2_\varepsilon + (t+\tau)\sigma^2_\eta}}
+\end{align*}
+
+
+If there is no variation in $\alpha$ over time ($\sigma^2_\eta = 0$) then $corr(y_{it}, y_{i(t+\tau)}) = 0$. In this situation we are able to draw a parallel to a linear mixed effect model. To further understand this consider our reduced model,
+
+
+\begin{align*}
+y_t &= \alpha_0 + \sum^t_{j = 1} \eta_j + X_t \beta_0 + \varepsilon_t
+\end{align*}
+
+If $\sigma^2_\eta = 0$ then $\eta_t = 0$ for $t \in \{1, 2, ..., T\}$. The model reduces to, 
+
+\begin{align*}
+y_t &= \alpha_0 + X_t \beta_0 + \varepsilon_t
+\end{align*}
+
+Where $\alpha_0\sim N(a_0, P_0)$, which is directly comparable to a linear mixed effect model with a random intercept. This highlights that the proposed model can accommodate the simplistic LMEM, but also accommodate more complex temporal auto-correlation. 
+
+
+### Formulating Proposed Model Into State Space Form
+
+By rewriting the proposed model the following way we show that it fits a state space model,
+
+
+\begin{align*}
+y_t = &
+\begin{bmatrix}
+I_n & X_t
+\end{bmatrix}
+\begin{bmatrix}
+\alpha_t\\
+\beta_t
+\end{bmatrix}
++ \varepsilon_t\\
+\begin{bmatrix}
+\alpha_t\\
+\beta_t
+\end{bmatrix} = &
+\begin{bmatrix}
+I_{(n+p)}
+\end{bmatrix}
+\begin{bmatrix}
+\alpha_{t-1}\\
+\beta_{t-1}
+\end{bmatrix} + 
+\begin{bmatrix}
+\eta_t \\
+0_{p \times 1}
+\end{bmatrix}\\
+\text{where,}&\\ 
+F_t =& \begin{bmatrix}
+I_n & X_t
+\end{bmatrix}, \ \ \mu_t = \begin{bmatrix}
+\alpha_t\\
+\beta_t
+\end{bmatrix}, \ \ V_t = \sigma^2_\varepsilon I_n, \ \ G_t = I_{n+p}, \ \ W_t = 
+\sigma^2_\eta\begin{bmatrix}
+I_n & 0\\
+0 & 0
+\end{bmatrix}
+\end{align*}
+
+
+The Kalman Filter and Kalman Smoother along with the variance optimization as described above may be calculated to get an estimate of $\mu_{t|T} = [\alpha_{t|T}' \ \beta_{t|T}']'$. Recall, we assume that $\beta_t$ remains constant over time, so all $\beta_{j|T}$ for $j\in \{1, 2, ..., T\}$ are equal. Our estimate for the linear effect of our predictors is $\hat\beta =\beta_{T|T}$ which has variance $P_{\hat\beta} = [P_{T|T}]_{(n+1:n+p), (n+1:n+p)}$. If modeling assumptions are met, $\hat\beta \sim N(B, P_{\hat\beta})$ which can be used for hypothesis testing.
+
+
+### Missing Data and Continuous Time Implementation
+
+Observational data often comes with unequally spaced observations. So far we have introduced $t$ as an indicator for time, but it can also indicate the $t^{th}$ observation. In the proposed formulation, $V_t = \text{Var}(\alpha_t|\alpha_{t-1}) = \sigma^2_\eta I_n$. Suppose we are missing observations $t-1:t-\tau$ then we would be interested in the following,
+
+
+\begin{align*}
+\text{Var}(\alpha_t|\alpha_{t-\tau-1}) &= \text{Var}(\alpha_{t-1} + \eta_t|\alpha_{t-\tau-1})\\
+&= \sigma^2_\eta + \text{Var}(\alpha_{t-2} + \eta_{t-1}|\alpha_{t-\tau-1})\\
+&= \tau \sigma^2_\eta
+\end{align*}
+
+Using this logic, we can set $t$ to indicate the $t^{th}$ observation and let $V_t = \delta_t\sigma^2_\eta I_n$ where $\delta_t$ is the time difference between $t^{th}$ and $(t-1)^{th}$ observations. Instead of a scalar, $\delta_t$ can also be an $n \times 1$ vector where $\delta_{ti}$ is the time difference between the $t^{th}$ and $(t-1)^{th}$ observation for the $i^{th}$ subject. Adjusting the variance matrix $V_t$ allows for continuous measurement times for each subject. 
+
+For situations where the number of observations are not equal between subjects we can define $W_t$ as a subset of rows of $I_n$ corresponding to those with $t^{th}$ observations present. Then let,
+
+* $y^* = W_ty_t$.
+* $F^*_t = W_t F_t$
+* $\varepsilon_t^* = W_t \varepsilon_t$
+
+Carrying out the same Kalman filter and smoother replacing $y$ with $y^*$, $Z$ with $Z^*$, and $\varepsilon_t^*$ with $\varepsilon_t$ allows for computation of all the smoothed values for $\alpha_t$ and $\beta_t$.
+
+
+
+# Computational Considerations
+
+Recall, state vector initial parameters are unknown, putting a diffuse prior on the variances will quickly converge to the same variances as if we correctly specified the initial conditions. To estimate our proposed model we set a diffuse prior on the vector $\mu_{0} = [\alpha_{0}' \ \beta_{0}']'$. Each subject shares $\beta$, which is now random as we assume $\beta_0 \sim N(0, \infty)$, therefore the observations $y_t$ are no longer treated as independent in the Kalman Filter and Kalman Smoother. This leads to the inverse of a possibly large non-sparse $n \times n$ matrix $\text{Var}(Y_t|y_{1:t-1}) = S_t$ in the Kalman Filter process for $t \in \{1, 2, ..., T\}$. The $S_t$ is also needed in the calculation of the log-likelihood of the variance parameters $\sigma^2_\varepsilon$ and $\sigma^2_\eta$, which makes it difficult to avoid the inversion at each iteration. This computational inefficiency is then amplified as the Kalman Filter needs to be run multiple times for the maximum likelihood estimation of $\sigma^2_\varepsilon$ and $\sigma^2_\eta$. We show, as expected, that the computation time increases exponentially as $n$ increases.
+
+
+## Partitioning
+
+A simple way to decrease the computation time is to randomly and equally partition the $n$ subjects into $k$ groups then run the Kalman Filter and Smoother on each group independently. This will result in $\hat\beta^{(i)}$ and $P^{(i)}_{\hat\beta}$ for $i \in \{1, 2, ..., k\}$ independent groups. We then use $\bar \beta = k^{-1}\sum_{i=1}^k \hat\beta^{(i)}$ as our estimate for $B$. If modeling assumptions are met, $\bar\beta \sim N(B, k^{-2}\sum_{i=1}^kP_{\hat\beta^{(i)}})$ which can be used for hypothesis testing.
+
+The partitioning method enforces a linear increase in computation time as $n$ increases.
+
+
+## Bayesian Gibb's Sampling
+
+As shown above, the computational issues arise because $\beta$ is not treated as fixed in the Kalman Filter. This issue can be avoided by estimating $\beta$ outside of the Kalman Filter using a Bayesian Gibb's Sampler which will fix the previous inversion obstacle as the elements of $Y_t$ will be treated as independent. Given some regularity conditions, after an adequate burn-in sample, the joint sample from the posterior distributions will represent a sample from the joint distribution of the unknown parameters. Inference can then be made using the samples of the respective parameters. 
+
+
+### The Model
+
+In this representation we no longer index the linear effect $\beta$ with a time component.
+
+\begin{equation}
+\begin{aligned}
+y_t &= \alpha_t + X_t \beta +\varepsilon_t\\
+\alpha_t &= \alpha_{t-1} + \eta_t
+\end{aligned}
+\end{equation}
+
+where $\varepsilon_t \sim N(0, \sigma^2_\varepsilon I_n)$, $\eta_t \sim N(0, \sigma^2_\eta I_n)$, and $\alpha_0\sim N(u_0, P_0)$ for some vector $\alpha_0$ and some positive valued diagonal matrix $P_0$.
+
+We also have the following prior distributions,
+
+
+\begin{equation}
+\begin{aligned}
+\beta &\sim N(\theta, \sigma^2_\beta)\\
+\sigma^2_\eta &\sim IG(a_0/2, b_0/2)\\
+\sigma^2_\varepsilon &\sim IG(c_0/2,d_0/2)
+\end{aligned}
+\end{equation}
+
+For notional ease, let $Y = [y_1, ..., y_T]$, $\alpha = [\alpha_1, ..., \alpha_T]$, $X = [X_1, ..., X_T]$
+
+## Posterior Distributions
+
+
+### $\alpha|Y, X, \beta, \sigma^2_\eta, \sigma^2_\varepsilon$
+
+
+The conditional distribution $\alpha|Y, X, \beta, \sigma^2_\eta, \sigma^2_\varepsilon$ can be estimated directly from the the Kalman Filter. By conditioning on $X_t$ and $\beta$ each $y_{ti}$ for $i \in \{1, 2, ..., n\}$ is independent at each observation $t$. Thus, we can run the Kalman Filter with $\tilde y_t = y_t - X_t \beta$ as the outcome in the model,
+
+\begin{equation}
+\begin{aligned}
+\tilde y_t &= \alpha_t +\varepsilon_t\\
+\alpha_t &= \alpha_{t-1} + \eta_t
+\end{aligned}
+\end{equation}
+
+Because the $\tilde y_t$ are independent it is equivalent to estimating the $\alpha_{ti}$ independently, resulting in a computational efficient Kalman Filter where,
+
+
+
+
+\begin{equation}
+\begin{aligned}
+\alpha_{t|t-1} = \alpha_{t-1|t-1}, \ \ \ & P_{t|t-1} = P_{t-1|t-1} + \sigma^2_\eta\\
+\alpha_{t|t} = \alpha_{t|t-1} + K_t (\tilde y_t- \alpha_t^{t-1}), \ \ \ & P_{t|t} = (1-K_t)P_{t|t-1}\\
+K_t = \frac{P_{t|t-1}}{P_{t|t-1} + \sigma^2_\varepsilon}
+\end{aligned}
+\end{equation}
+
+
+Although we are using vectors, because of the independence each operation is done element-wise. Let $\psi = \{\sigma^2_\eta, \sigma^2_\varepsilon, \beta\}$, the vector of the other unknown parameters.To get $\alpha_{t|T} = E_\psi(\alpha_t|y_{1:T})$ and $P_{t|T} = \text{Var}_\psi(\alpha_t|y_{1:T})$ we need the backward recursions starting with $J_T = 0$,
+
+
+\begin{equation}
+\begin{aligned}
+\alpha_{t-1|T} = \alpha_{t-1|t-1} + J_{t-1}(\alpha_{t|T} - \alpha_{t|t-1})\\
+P_{t-1|T} = P_{t-1|t-1} + J_{t-1}^2 (P_{t|T}-P_{t|t-1})\\
+J_{t-1} = \frac{P_{t-1|t-1}}{P_{t|t-1}}
+\end{aligned}
+\end{equation}
+
+For the posterior of $\alpha$ we want,
+
+
+\begin{equation}
+\begin{aligned}
+P_\psi(\alpha_{0:T}|y_{1:T}) &= P_\psi(\alpha_T|y_{1:T})P_\psi(\alpha_{T-1}|\alpha_T, y_{1:T}) ...  P_\psi(\alpha_0|\alpha_{1:T}, y_{1:T}.)\\
+&= P_\psi(\alpha_T|y_{1:T})P_\psi(\alpha_{T-1}|\alpha_n, y_{1:(T-1)}) ...  P_\psi(\alpha_0|\alpha_1)
+\end{aligned}
+\end{equation}
+
+
+Therefore we need the densities,
+
+\begin{equation}
+\begin{aligned}
+p_\psi(\alpha_t|\alpha_{t+1}, y_{1:t}) \propto p_\psi(\alpha_t| y_{1:t})p_\psi(\alpha_{t+1}| \alpha_t)
+\end{aligned}
+\end{equation}
+
+Because of the normality assumption we know that $\alpha_t|y_{1:t} \sim N_\psi(\alpha_{t|t}, P_{t|t})$ and $\alpha_{t+1}|\alpha_t \sim N_\psi(\alpha_t, \sigma^2_\eta)$. We can show that after combining the two densities $m_t = E_\psi(\alpha_t| \alpha_{t+1},y_{1:t}) = \alpha_{t|t} + J_t (\alpha_{t+1} - \alpha_{t+1|t})$ and $R_t = \text{Var}_\psi(\alpha_t| \alpha_{t+1},y_{1:t})= P_{t|t} - J_t^2 P_{t+1|t}$. Therefore, the posterior distribution for $\alpha_t$ is $N(m_t, R_t)$.
+
+For the backward sampling procedure we start by sampling a $\alpha_T^*$ from a $N_\psi(m_T, R_T)$, then setting $\alpha_T^* = \alpha_T$ for the calculation of $m_{T-1}$ to then sample $\alpha_{T-1}^*$ from a $N_\psi(m_{T-1}, R_{T-1})$. This process continues until a whole chain $\alpha_{0:T}^*$ has been sampled.
+
+
+
+
+
+### $\beta|Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon$
+
+With all the other parameters fixed,
+
+\begin{equation}
+\begin{aligned}
+P(\beta|Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon) = \frac{P(Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon|\beta)P(\beta)}{P(Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon)}
+\end{aligned}
+\end{equation}
+
+Because $P(Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon)$ is constant with respect to $\beta$ and $P(\beta)$ is already defined we focus our attention on $P(Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon|\beta)$.
+
+
+
+\begin{equation}
+\begin{aligned}
+P(Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon|\beta) = &P(y_1, ..., y_T, \alpha_1, ..., \alpha_T, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= & P(y_T|y_1, ..., y_{T-1}, \alpha_1, ..., \alpha_T, \sigma^2_\eta, \sigma^2_\varepsilon \beta)\\
+& \times P(y_1, ..., y_{T-1}, \alpha_1, ..., \alpha_T, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= & P(y_T|\alpha_T, \sigma^2_\varepsilon \beta)P(\alpha_{T-1}|y_1, ..., y_{T-1}, \alpha_1, ..., {\alpha_{T-1}}, \sigma^2_\eta, \sigma^2_\varepsilon, \beta)\\
+& \times P(y_1, ..., y_{T-1}, \alpha_1, ..., {\alpha_{T-1}}, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= & P(y_T|\alpha_T, \sigma^2_\varepsilon \beta)P(\alpha_{T-1}|{\alpha_{T-1}}, \sigma^2_\eta)\\
+& \times P(y_1, ..., y_{T-1}, \alpha_1, ..., {\alpha_{T-1}}, \sigma^2_\eta, \sigma^2_\varepsilon | \beta)\\
+= &P(\sigma^2_\varepsilon)P(\sigma^2_\eta)\bigg(\prod^T_{k=0} P(\alpha_k|\alpha_{k-1},\sigma^2_{\eta})\bigg) \prod^T_{t=1} P(y_t|\alpha_t, \sigma^2_\varepsilon, \beta)\\
+\propto & \prod^T_{t=1} P(y_t|\alpha_t, \sigma^2_\varepsilon, \beta)
+\end{aligned}
+\end{equation}
+
+
+For simplicity we can further write, 
+
+
+\begin{equation}
+\begin{aligned}
+-2logP(Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon|\beta) \propto & \sum^T_{t=1}\frac{ (y_t - \alpha_t - X_t\beta)' (y_t - \alpha_t - X_t\beta)}{\sigma^2_\varepsilon}\\
+\propto & \sum^T_{t=1}\frac{-2y_t'X_t\beta +2\alpha_t'X_t\beta + \beta'X_t'X_t\beta}{\sigma^2_\varepsilon}\\
+\propto & \frac{\beta'\big(\sum^T_{t=1}X_t'X_t\big)\beta -2\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t\beta }{\sigma^2_\varepsilon}\\
+\end{aligned}
+\end{equation}
+
+
+We can then find the proportionality of the prior of $\beta$,
+
+
+\begin{equation}
+\begin{aligned}
+-2logP(\beta) \propto & \frac{(\beta - \theta)'(\beta-\theta)}{\sigma^2_\beta}\\
+\propto & \frac{\beta'\beta - 2\theta\beta}{\sigma^2_\beta}
+\end{aligned}
+\end{equation}
+
+
+Thus the -2log posterior of $\beta$ is proportional to,
+
+
+\begin{equation}
+\begin{aligned}
+-2logP(\beta|Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon) \propto & \frac{\beta'\big(\sum^T_{t=1}X_t'X_t\big)\beta -2\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t\beta }{\sigma^2_\varepsilon} + \frac{\beta'\beta - 2\theta\beta}{\sigma^2_\beta}\\
+ \propto & \frac{\beta'\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)\beta -2\sigma^2_\beta\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t\beta +\beta'\sigma^2_\varepsilon I_p \beta - 2\sigma^2_\varepsilon\theta\beta}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+  \propto & \frac{\beta'\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)\beta+\beta'\sigma^2_\varepsilon I_p \beta -2\sigma^2_\beta\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t\beta  - 2\sigma^2_\varepsilon\theta\beta}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+\propto & \frac{\beta' \bigg(\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+\sigma^2_\varepsilon I_p \bigg) \beta -2\bigg(\sigma^2_\beta\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t -\sigma^2_\varepsilon\theta'\bigg)\beta}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+\propto & \frac{(\beta - \Sigma^{-1} B)'
+\Sigma
+(\beta - \Sigma^{-1}B)}{\sigma^2_\varepsilon\sigma^2_\beta}\\
+\end{aligned}
+\end{equation}
+
+
+Where $B = \sigma^2_\beta\big(\sum^T_{t=1}y_t-\alpha_t\big)'X_t -\sigma^2_\varepsilon\theta'$ and $\Sigma = \big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+\sigma^2_\varepsilon I_p$. Therefore, $\beta|Y, \alpha, \sigma^2_\eta, \sigma^2_\varepsilon \sim N(\Sigma^{-1}B, \sigma^2_\varepsilon\sigma^2_\beta\Sigma^{-1})$. 
+
+Note here that $\Sigma$ is a $p\times p$ matrix that needs to be inverted. If $p$ is large, this can greatly slow down the Gibb's Sampler, especially when considering we may do several thousand iterations. However, $\Sigma$ can be broken down to increase computation speed. Recall, $\Sigma = (\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+\sigma^2_\varepsilon I_p)$ and $(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)$ will not change at each iteration because it does not contain unknown parameters. By calculating the eigenvalue decomposition on $sigma^2_\beta\sum^T_{t=1}X_t'X_t$ we can rewrite $\Sigma$ as follows, 
+
+
+\begin{align*}
+(\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big) + \sigma^{2}_\varepsilon I) &=
+( Q\Lambda Q' + \sigma^{2}_\varepsilon I)\\
+&=
+( Q\Lambda Q' + \sigma^{2}_\varepsilon QQ')\\
+&=
+Q(\Lambda + \sigma^{2}_\varepsilon I)Q'\\
+\text{then,}\\
+(\big(\sigma^2_\beta\sum^T_{t=1}X_t'X_t\big)+ \sigma^{2}_\varepsilon I)^{-1} &=
+Q\big(1/(\Lambda + \sigma^{2}_\varepsilon I)\big) Q'
+\end{align*}
+
+We only need to calculate the eigen vectors $Q$ and eigen values $\Lambda$ of $sigma^2_\beta\sum^T_{t=1}X_t'X_t$ once, then simply update $\sigma^2_\varepsilon$ before calculating the inverse.
+
+
+### $\sigma^2_\eta|Y, \beta, \alpha, \sigma^2_\varepsilon$ and $\sigma^2_\varepsilon|Y, \alpha, \sigma^2_\eta$ 
+
+
+
+By applying the same Bayes' rule rationale,
+
+
+\begin{equation}
+\begin{aligned}
+P(\sigma^2_\eta|Y, \beta, \alpha, \sigma^2_\varepsilon) =& \frac{P(Y, \beta, \alpha, \sigma^2_\varepsilon|\sigma^2_\eta)P(\sigma^2_\eta)}{P(Y, \beta, \alpha, \sigma^2_\varepsilon)}\\
+\propto & P(Y, \beta, \alpha, \sigma^2_\varepsilon|\sigma^2_\eta)P(\sigma^2_\eta)\\
+\propto & (\sigma^2_\eta)^{-nT/2} e^{\sum^T_{t=1} (\alpha_t-\alpha_{t-1})^2/2\sigma^2_\eta}(\sigma^2_\eta)^{-a_0/2-1}e^{-b_0/2\sigma^2_\eta}\\
+\propto & (\sigma^2_\eta)^{-(nT+a_0)/2-1} e^{(\sum^T_{t=1} (\alpha_t-\alpha_{t-1})^2+b_0)/2\sigma^2_\eta}
+\end{aligned}
+\end{equation}
+
+Therefore, $\sigma^2_\eta|Y, \beta, \alpha, \sigma^2_\varepsilon \sim IG(\frac{nT+a_0}{2}, \frac{\sum^T_{t=1} (\alpha_t-\alpha_{t-1})^2+b_0}{2})$.
+
+In a very similar fashion we can show $\sigma^2_\varepsilon|Y, \beta, \alpha, \sigma^2_\eta \sim IG(\frac{nT+c_0}{2}, \frac{d_0 + \sum^T_{t=1}(y_t-X_t\beta-\alpha_t)^2}{2})$.
+
+
+
+

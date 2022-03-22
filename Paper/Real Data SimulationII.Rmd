@@ -1,0 +1,103 @@
+---
+output: pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+- \usepackage{longtable}
+---
+
+## Real Data Simulation
+
+Although assessing model accuracy under correct and incorrect model specification is important, of more importance is evaluation of the models when the underlying data generation of the neuropsychological outcome is unknown. To compare the proposed LLT models and commonly used LMEMs we conduct a simulation study using the real NACC data. For each of the 1,000 simulations, half of the NACC participants are randomly selected and given a linear group effect to the existing Animals test outcome. The LLT and LME models are then used to estimate the original model of interest (section \@ref(MOI)) with the additional simulated group effect. If the unknown temporal covariance structure is correctly specified by the model, we expect to accurately estimate this simulated group effect by showing unbiasedness and proper 95% coverage. The models used to estimate the simulated group effect are a linear mixed effect model with a random intercept, a linear mixed effect model with a random intercept and AR(1) auto-correlation, partitioned LLT model with k = 50 groups, and a Bayesian LLT model.
+
+For the NACC simulation, the Bayesian LLT model unknown parameters have the same prior distribution as is done in the full data simulation. We use the same 1,000 sample "burn-in" and 1,000 samples for inference as well.
+
+## Real Data Simulation Results
+
+When estimating the randomly prescribed group effect on the Animals outcome, the partitioned LLT and Bayesian LLT methods maintain unbiasedness and proper 95% confidence interval coverage (93.5% and 94.0% respectively). Both linear mixed effect models, while unbiased, did not maintain proper type I error of 0.05. The random intercept LMEM has poor coverage at 79.5% and the random intercept LMEM with an AR(1) temporal variance structure has coverage of 88.9%. The LMEM with the AR(1) variance structure did better than the standard LMEM on coverage, but the probability of type I error is estimated as 0.11 which is more than double the prescribed 0.05. 
+
+The coverage results from the real data simulation are consistent with results found in the full data simulation. The variance parameter estimates on the NACC data set for the Bayesian LLT are $\hat \sigma^2_\varepsilon = 7.86$ and $\hat \sigma^2_\eta = 2.19$ which is a 3.59 to 1 ratio. The fully simulated data coverage for the standard LMEM, the LMEM with an AR(1), and the Bayesian LLT under the scenario $\sigma^2_\varepsilon = 3, \sigma^2_\eta = 1$ are 79.0%, 84.7%, and 94.0% respectively. 
+
+```{r, include = FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(abind)
+theme_set(theme_bw())
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE)
+```
+
+
+```{r}
+
+DateFolder <- paste("Simulations/RealDataSim/", "05172021", "/",sep = "") 
+
+fidf <- list.files(DateFolder, full.names = T)
+outSim <- map(fidf[grepl("outArray", fidf)], function(x){
+  readRDS(x)
+}) %>%
+  do.call("abind", .)
+
+
+
+Bval <- readRDS("NACC/sd1.RDS")
+```
+
+
+
+
+
+
+
+```{r}
+(outSim[,2,] < Bval & outSim[,3,] > Bval) %>%
+  apply(1, mean, na.rm = TRUE) %>%
+  data.frame() %>%
+  mutate(`.` = round(`.`, 3)) %>%
+  t() %>%
+  as_tibble() %>%
+  select(V1, V2, V4, V3) %>%
+  rename("LMEM" = V1, "LMEM AR(1)" = V2, "Bayesian LLT" = V3, "Partition LLT" = V4) %>%
+  mutate_all(function(x)str_pad(x, 5, "right", "0")) %>%
+  kbl(longtable = TRUE, escape = FALSE, caption = "Simulated effect parameter coverage proportion. The LMEM methods do not maintain 95 percent coverage, while the LLT estimation procedures do.") %>%
+  kable_styling()
+  
+```
+
+
+
+
+```{r, fig.cap = "Simulated effect parameter bias with empirical 95 percent confidence interval. All estimation methods are unbiased. The Bayesian LLT has less variability in the estimates when compard to the Partition LLT.", fig.height=2.5}
+outSim[,1,] %>%
+  t() %>%
+  as_tibble() %>%
+  rename("LMEM" = V1, "LMEM AR(1)" = V2, "Bayesian LLT" = V3, "Partition LLT" = V4) %>%
+  gather("Method", "Value", LMEM:`Partition LLT`) %>%
+  mutate(Method = factor(Method, levels = c("LMEM", "LMEM AR(1)", "Partition LLT", "Bayesian LLT"))) %>%
+  group_by(Method) %>%
+  summarise(Median = median(Value, na.rm = TRUE), LCL = quantile(Value, .025, na.rm = TRUE), UCL = quantile(Value, 0.975, na.rm = TRUE))  %>%
+  ggplot(aes(x = Method, y = Median, fill = Method, shape = Method))+
+  geom_hline(yintercept = Bval , color = "red") +
+  geom_errorbar(aes(ymin = LCL, ymax = UCL), size = 1) +
+  geom_point(aes(color = Method), size=10) +
+  theme_classic()+
+  theme(legend.position = "bottom")+
+  scale_color_manual(values = c("#405E92", "#408B92", "#DF9816", "#409247")) +
+  scale_shape_manual(values = c(15, 18, 7, 8))  +
+  ylab("Median Bias") 
+# +
+#   guides(colour = guide_legend(nrow = 1), title.position = "top")
+```
+

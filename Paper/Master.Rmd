@@ -1,0 +1,94 @@
+---
+title: State Space Models for Neuropsychological Cognitive Scores
+output: 
+  bookdown::pdf_document2:
+    keep_tex: true
+    classoption: 12pt
+author:
+  - Zach Baucom, BS, zhbaucom@bu.edu
+  - Yorghos Tripodis, PhD, yorghos@bu.edu
+  - Michael Alosco, PhD, malsoco@bu.edu
+  - Evan Johnson, PhD, wej@bu.edu
+abstract: "Alzheimer's disease, and other related dementia diseases, are a worsening issue with an acceleration in today's aging population. Longitudinal cognitive assessment of those suffering from dementia offers vital insight into disease progression and allows for assessment of possible disease interventions. Difficulty in modeling such data arises as there are often non-linear and heterogenous patterns of decline from patient to patient. We propose the use of state space models (SSM), specifically a Local Linear Trend (LLT) model, as an alternative to the commonly used linear mixed effect models (LMEM) for longitudinal assessments. The proposed model includes the estimation of interpretable population linear effects on the outcome, while also allowing for subject-specific non-linearities in cognitive trajectories. To fit the LLT model, we utilize the traditional full likelihood estimation using the Kalman Filter and Kalman Smoother. We also compare the use of a partitioned LLT and a Bayesian LLT for computational efficiency.  In two separate simulation analyses, we show the advantages of the LLT models over the predominant techniques. We go on to show that of the LLT methods, they Bayesian LLT excels. Lastly, we use the LLT models to estimate the effect of the APOE e4 allele on cognitive trajectory."
+bibliography: bibliography2.bib
+csl: JASA.csl
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+- \usepackage{amsmath}
+- \usepackage{algorithm,algorithmic}
+- \addtolength{\oddsidemargin}{-.5in}%
+- \addtolength{\evensidemargin}{-.5in}%
+- \addtolength{\textwidth}{1in}%
+- \addtolength{\textheight}{-.3in}%
+- \addtolength{\topmargin}{-.8in}%
+- \usepackage{float}
+- \floatplacement{figure}{H}
+---
+
+\newpage{}
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+```{r child = "Introduction III.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+# Methods
+
+```{r child = "DataModel.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+```{r child = "MethodsVI.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+
+# Model Validation
+
+
+```{r child = "Full SimulationIII.Rmd", cache = FALSE, eval = TRUE}
+
+
+```
+
+
+```{r child = "Real Data SimulationII.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+```{r child = "Computation TimeII.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+
+
+
+```{r child = "NACC AnalysisII.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+
+```{r child = "Discussion.Rmd", cache = TRUE, eval = TRUE}
+
+```
+
+\newpage{}
+
+# Bibliography

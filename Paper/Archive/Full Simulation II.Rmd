@@ -1,0 +1,506 @@
+---
+output: pdf_document
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{xcolor}
+---
+
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(eval = FALSE)
+library(gridExtra)
+library(lme4)
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+library(latex2exp)
+setwd("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/")
+source("functions/BayesKalmUneq2.R") #Holds the Bayesian Kalman Regression
+source("functions/ss.simp.sim.R") #To simulate the data
+
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+
+B <- readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/NACC/B.RDS")
+```
+
+
+
+
+
+## Fully Simulated Data Results
+
+The LME and LMEM with an AR(1) temporal variance structure both maintain 95% parameter coverage when the model is correctly specified. However, as the variance of the latent state ($\sigma^2_\eta$) increases there is evident under coverage. The LLTs maintain near 95% coverage even when the underlying data generating process is that of an AR(1) with $\rho = 0.5$, suggesting the LLT models are more robust to model misspecification. 
+
+All methods show unbiasedness under each simulation scenario. Of the state space models the Bayesian estimation process has the smallest variability in effect estimates and closely rivals that of the LMEMs. The partitioned state space model with 10 groups shows high estimate volatility, however, when there are 2 or 4 groups the estimate resemble the full data model. This suggest that if the number of estimated parameters is reasonable compared to the group size, then partitioning will decrease computation time without sacrificing much in terms of estimation.
+
+Among the LLT methods, the Bayesian LLT estimation also maintains the smallest confidence interval length for the linear effect parameters, which translates to higher power. The LMEM methods have an even smaller confidence interval length, but because the LMEM methods do not have the correct 0.05 probability of type I error the comparison is inconsequential. 
+
+Non-convergence in variance estimation 
+
+
+
+
+
+
+```{r}
+bboy <- readRDS("C:/Users/zachb/OneDrive/Research/Kalman/StateSpace/Simulations/bboy.RDS")
+```
+
+
+```{r, eval = FALSE}
+bboy %>%
+  filter(Method == "Bayes")
+
+
+bboy %>%
+  group_by(Simulation, Parameter) %>%
+  mutate(NonConv = UCL >=  TrueParam + max(Bias[Method == "Bayes"]) + max(CI.length[Method == "Bayes"])) %>%
+  group_by(Method, Simulation, Parameter) %>%
+  summarise(NonConv = mean(NonConv))
+
+```
+
+
+
+```{r, eval = FALSE}
+unique(bboy$Simulation)
+bboy %>%
+  filter(Simulation == "ItoutNACC4 3 2.RDS") %>%
+  group_by(Method) %>%
+  summarise(
+    Count = n(), 
+    g5 = mean(UCL > 5), 
+    g10 = mean(UCL > 10), 
+    g50 = mean(UCL > 50), 
+    g100 = mean(UCL > 100), 
+    g1000 = mean(UCL > 1000), 
+    g2000 = mean(UCL > 2000)
+  )
+
+
+map(1:8, function(par){
+  bboy %>%
+    filter(Parameter == par) %>%
+    filter(Simulation == "ItoutNACC4 3 2.RDS") %>%
+    group_by(Method) %>%
+    summarise(
+      Count = n(), 
+      g5 = mean(UCL > 5), 
+      g10 = mean(UCL > 10), 
+      g50 = mean(UCL > 50), 
+      g100 = mean(UCL > 100), 
+      g1000 = mean(UCL > 1000), 
+      g2000 = mean(UCL > 2000)
+    )
+})
+
+
+```
+
+
+
+
+```{r, eval = TRUE}
+bboy %>%
+  group_by(Method,  sigeps, sigeta) %>%
+  summarise(Coverage = round(mean(Covered), 3)) %>%
+  spread("Method", "Coverage") %>%
+  .[c("sigeps", "sigeta","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")] %>%
+  kbl(row.names = FALSE,  longtable = TRUE, escape = FALSE, caption = "Parameter coverage probability",
+        col.names = c("$\\sigma^2_\\varepsilon$", "$\\sigma^2_\\eta$","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")) %>%
+  add_header_above(c("Variance\nParameters" = 2, "Traditional\nMethods" = 2,"State Space Methods" = 5)) %>%
+  kable_styling()
+```
+
+
+```{r}
+fdp1 <- bboy %>%
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes')))  %>%
+  group_by(Method, plabel) %>%
+  summarise(Median = median(Bias), LCL = quantile(Bias, .025), UCL = quantile(Bias, 0.975)) %>%
+  ggplot(aes(x = Method, y = Median, shape = Method)) +
+  geom_hline(yintercept = 0, color = "red") +
+  geom_errorbar(aes(ymin = LCL, ymax = UCL)) +
+  geom_point(aes(color = Method), size=5) +
+  facet_wrap(plabel ~ ., scales = "free_y", labeller=label_parsed) +
+  theme_classic()+
+  theme(legend.position = "none",
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247"))  +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  ylab("Median Bias")
+```
+
+
+
+```{r}
+
+fdp2 <- bboy %>%
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes'))) %>%
+  # filter(Method != "Part10") %>%
+  group_by(Parameter, Simulation, Method, plabel, V1, V2) %>%
+  summarise(Median = median(CI.length), LCL = quantile(CI.length, .025), UCL = quantile(CI.length, 0.975)) %>%
+  group_by(plabel) %>%
+  mutate(
+    UCL = ifelse(
+      V1 == "3" & V2 == "2" & Method == "LLT", NA,
+      UCL
+    ),
+    ystart = ifelse(
+      V1 == "3" & V2 == "2" & Method == "LLT", LCL,
+      NA
+    ),
+    yend = ifelse(
+      V1 == "3" & V2 == "2" & Method == "LLT", max(UCL, na.rm = TRUE),
+      NA
+    )
+  ) %>%
+  ggplot(aes(x = Method, y = Median, color = Method, fill = Method, shape = Method)) + 
+  geom_errorbar(aes(ymin = LCL, ymax = UCL), color = "black") +
+  geom_segment(aes(y = ystart, yend = yend, xend = Method), color = "black") +
+  geom_point(aes(color = Method), size=5) +
+
+  facet_wrap(plabel ~ ., labeller=label_parsed, scales = "free_y") +
+  theme_classic()+
+  theme(legend.title = element_blank(),
+        legend.position = "bottom",
+        strip.background = element_blank(), #maybe remove
+        strip.text.x = element_blank(), #maybe remove
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247")) +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  guides(colour = guide_legend(nrow = 1), title.position = "top") +
+  ylab("Median CI Length")
+
+
+```
+
+
+
+
+
+```{r, fig.cap = "Bias and confidence interval length"}
+grid.arrange(fdp1, fdp2, heights = c(1, 1.05))
+
+```
+
+
+
+```{r}
+
+knitr::opts_chunk$set(eval = FALSE)
+```
+
+
+
+```{r, eval = FALSE}
+bboy %>%
+  filter(Parameter == 2) %>%
+  filter((V1 == "AR1" & V2 == "None") | (V1 == "3" & V2 == "2")|(V1 == "AR1" & V2 == "Medium")) %>%
+  mutate(Method = factor(Method, levels = c('LME', 'AR(1)', 'LLT', 'Part2', 'Part4', 'Part10', 'Bayes')))  %>%
+  group_by(Method, plabel) %>%
+  summarise(
+    MedianBias = median(Bias), 
+    LCLBias = quantile(Bias, .025), 
+    UCLBias = quantile(Bias, 0.975), 
+    MedianCI = median(CI.length), 
+    LCLCI = quantile(CI.length, .025), 
+    UCLCI = quantile(CI.length, 0.975)
+  ) %>%
+  gather("MedianType", "Median", MedianBias, MedianCI) %>%
+  mutate(
+    LCL = case_when(
+      MedianType == "MedianBias" ~ LCLBias,
+      MedianType == "MedianCI" ~ LCLCI
+    ),
+    UCL = case_when(
+      MedianType == "MedianBias" ~ UCLBias,
+      MedianType == "MedianCI" ~ UCLCI
+    ),
+    MedianType = case_when(
+      MedianType == "MedianBias" ~ "MedianBias",
+      MedianType == "MedianCI" ~ "MedianCI"
+    ) %>% factor()
+  ) %>%
+  ggplot(aes(x = Method, y = Median, color = Method, fill = Method, shape = Method)) +   geom_errorbar(aes(ymin = LCL, ymax = UCL), color = "black") +
+  geom_point(aes(color = Method), size=5) +
+  facet_grid(MedianType~plabel, labeller=label_parsed, scales = "free_y") +
+  theme_classic()+
+  theme(legend.position = "top",
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank()) +
+  scale_color_manual(values = c("#405E92", "#408B92",   "#DF3116",   "#DF8016",  "#DFB916", "#FFEA60", "#409247"))  +
+  guides(colour = guide_legend(nrow = 1), title.position = "top")  +
+  scale_shape_manual(values = c(15, 18, 10, 7, 9, 12, 8))  +
+  ylab("Median Bias")
+  
+```
+
+```{r,eval=FALSE}
+set.seed(24)
+#Fixed Params
+SimNum <- 1000
+
+n <- 100 #Number of subjects
+B <- readRDS("NACC/B.RDS") #Beta Vector
+p <- length(B) #Number of Betas
+
+
+
+u0.true <- 0 #True mean of mu_0
+P0.true <- 1 #True variance of mu_0
+
+t <- 6
+#####Bayesian Kalman Filter
+#Beta ~ N(Beta.Initial, sigma2.beta)
+Beta.Initial <- 0
+# Beta.Initial <- B
+sigma2.beta <- 10
+#sigma2.eta ~ IG(a0/2, b0/2)
+a0 <- .01
+b0 <- .01
+#sigma2.ps ~ IG(c0/2, d0/2)
+c0 <- .01
+d0 <- .01
+#mu0 ~ N(u0, P0)
+u0 <- 0
+P0 <- 10
+########### Select Iterations and Burn ########### 
+Its <- 3000
+Burn <- ceiling(Its/2)
+
+
+rhoS = list(order = c(1, 0, 0), ar = 0.9, sd = 1)
+simXfun <- runif
+X <- matrix(simXfun(p*n, 0, 20), n, p)
+
+XY <- lapply(1:t, function(x){
+    xout <- cbind(1:n, x, (x*X) %*% B, x*X)
+    colnames(xout) <- c("id","time", "XB", paste("X", 1:p, sep = ""))
+    xout
+  } ) %>%
+    do.call("rbind", .) %>%
+    as_tibble() %>%
+    group_by(id) %>%
+    mutate(error = arima.sim(n = n(), model = rhoS)) %>%
+    mutate(y = XB + error) %>%
+    select(-XB, -error) %>%
+    ungroup(id) %>%
+    arrange(id, time)
+
+XY <- XY %>%
+  group_by(id) %>%
+  mutate(Keep = c(TRUE, 2:n() %in% sample(2:n(), sample(1:(length(id)-1), 1)))) %>%
+  ungroup(id) %>%
+  filter(Keep == TRUE) %>%
+  arrange(id, time)
+
+############FORMAT DATA FOR REGULAR KALMAN FILTER
+y.long <- XY$y
+X.long <- as.matrix(XY[,paste("X", 1:p, sep = "")])
+id <- XY$id
+time <- XY$time
+
+Beta.Initial <- coef(lm(y.long ~ X.long - 1))
+
+bkout <- BayesKalm.Uneq(
+  y.long = y.long, X.long = X.long, id = id, time = time,
+  Burn = Burn, Its = Its, 
+  Beta.Initial = Beta.Initial, sigma2.beta = sigma2.beta, 
+  u0 = u0, P0 = P0, 
+  a0 = a0, b0 = b0, 
+  c0 = c0, d0 = d0,
+  silence = TRUE
+)
+
+
+p1 <- bkout$Beta %>%
+  t() %>%
+  data.frame() %>%
+  set_names(paste("B", 1:length(B), sep = "")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Beta", "Value", -ind) %>%
+  mutate(Z = B[as.numeric(substr(Beta, 2, nchar(Beta)))]) %>%
+  filter(Beta == "B1", ind > Burn) %>%
+  ggplot(aes(x = ind, y = Value, color = Beta)) + 
+  geom_point(shape = 21) + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  xlab("Gibb's Sample iteration") +
+  theme(legend.position = "none") +
+  theme_classic()
+```
+
+
+```{r,eval=FALSE}
+colnames(X) <- paste("X", 1:ncol(X), sep = "")
+ytot <- ss.simp.sim(X, B, t = t, sigma2.eps = 3, sigma2.eta = 1, u0 = u0.true, P0 = P0.true) #Creates a simulated y
+
+y <- ytot
+
+colnames(y) <- paste("y", 1:ncol(y), sep = "")
+
+XY1 <- cbind(id = 1:n, y, X)
+
+XYs <- XY1 %>%
+  data.frame() %>%
+  gather("time", "y", colnames(.)[grepl("y", colnames(.))]) %>%
+  mutate(time = as.numeric(substr(time, 2, nchar(time)))) 
+
+XYs[grepl("X", colnames(XYs))] <- XYs[grepl("X", colnames(XYs))] * XYs$time
+
+
+XY <- XYs %>%
+  filter(!is.na(y)) %>%
+  arrange(id, time) 
+  
+  ############FORMAT DATA FOR REGULAR KALMAN FILTER
+y.long <- XY$y
+X.long <- as.matrix(XY[,paste("X", 1:p, sep = "")])
+id <- XY$id
+time <- XY$time
+
+Beta.Initial <- coef(lm(y.long ~ X.long - 1))
+
+bkout <- BayesKalm.Uneq(
+  y.long = y.long, X.long = X.long, id = id, time = time,
+  Burn = Burn, Its = Its, 
+  Beta.Initial = Beta.Initial, sigma2.beta = sigma2.beta, 
+  u0 = u0, P0 = P0, 
+  a0 = a0, b0 = b0, 
+  c0 = c0, d0 = d0,
+  silence = TRUE
+)
+
+
+p2 <- bkout$Beta %>%
+  t() %>%
+  data.frame() %>%
+  set_names(paste("B", 1:length(B), sep = "")) %>%
+  mutate(ind = 1:nrow(.)) %>%
+  gather("Beta", "Value", -ind) %>%
+  mutate(Z = B[as.numeric(substr(Beta, 2, nchar(Beta)))]) %>%
+  filter(Beta == "B1", ind > Burn) %>%
+  ggplot(aes(x = ind, y = Value, color = Beta)) + 
+  geom_point(shape = 21) + 
+  geom_hline(aes(yintercept = Z), col = "red") +
+  xlab("Gibb's Sample iteration") +
+  theme(legend.position = "none") +
+  theme_classic()
+```
+
+```{r, fig.height=3,eval=FALSE}
+grid.arrange(p1, p2, ncol = 2)
+```
+
+
+
+
+
+
+```{r, cache = TRUE,eval=FALSE}
+# knitr::opts_chunk$set(eval = FALSE)
+SimPrefix <- "ItoutNACC4 "
+
+flist <- list.files("Simulations/SimOutReform")
+flist <- flist[grepl(SimPrefix,flist)][c(2,3,4,5,6,7,10,11,9)]
+B <- readRDS("NACC/B.RDS")
+B <- c(B[-1], B[1])
+SimList <- map(flist, ~readRDS(paste("Simulations/SimOutReform/",.x, sep = "")))
+# map(Itout, "Fails")
+names(SimList) <- flist
+```
+
+
+```{r, cache = TRUE, warning = FALSE,eval=FALSE}
+
+
+x <- flist[1]
+
+
+Coverage <- sapply(flist, function(x){
+  Itout <- SimList[[x]] 
+  Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 2, mean, na.rm = TRUE) 
+
+  Vars <- x %>% 
+    gsub(SimPrefix, "", .) %>%
+    gsub(".RDS", "", .) %>%
+    str_split(" ") %>%
+    .[[1]] %>%
+    gsub("_", ".", .) %>%
+    as.numeric()
+    c(round(Vars, 1), round(Coverage, 3))
+  
+}) %>% 
+  t()
+
+
+
+colnames(Coverage) <- c("sigeps", "sigeta","LME", "AR(1)", "LLT", "Bayes", "Part2", "Part4", "Part10") 
+
+
+Coverage[,c("sigeps", "sigeta","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")] %>%
+  data.frame() %>%
+  rownames_to_column("SimScen") %>%
+  mutate(sigeps = as.character(sigeps), sigeta = as.character(sigeta)) %>%
+  mutate(
+    sigeps = case_when(
+        is.na(sigeps) & grepl("None", SimScen) ~ "$\\rho = 0$",
+        is.na(sigeps) & grepl("Small", SimScen) ~ "$\\rho = 0.1$",
+        is.na(sigeps) & grepl("Medium", SimScen) ~ "$\\rho = 0.5$",
+        is.na(sigeps) & grepl("Large", SimScen) ~ "$\\rho = 0.9$",
+      TRUE ~ paste(sigeps)
+    ),
+    sigeta = case_when(
+        is.na(sigeta) & (grepl("None", SimScen) | grepl("Small", SimScen) | grepl("Medium", SimScen) |  grepl("Large", SimScen)) ~ "1",
+      TRUE ~ paste(sigeta)
+    )
+  ) %>%
+  select(-SimScen) %>%
+  # .[c(2,3,4,5,6, 7, 10, 11, 9),] %>%
+  kable(row.names = FALSE, escape = FALSE,
+        col.names = c("$\\sigma^2_\\varepsilon$", "$\\sigma^2_\\eta$","LME", "AR(1)", "LLT", "Part2", "Part4", "Part10", "Bayes")) %>%
+  add_header_above(c("Variance\nParameters" = 2, "Traditional\nMethods" = 2,"State Space Methods" = 5)) %>%
+  kable_styling()
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

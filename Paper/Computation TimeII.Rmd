@@ -1,0 +1,77 @@
+---
+output:
+  bookdown::pdf_document2: 
+    latex_engine: xelatex
+header-includes:
+- \usepackage{booktabs}
+- \usepackage{longtable}
+- \usepackage{array}
+- \usepackage{multirow}
+- \usepackage{wrapfig}
+- \usepackage{float}
+- \usepackage{colortbl}
+- \usepackage{pdflscape}
+- \usepackage{tabu}
+- \usepackage{threeparttable}
+- \usepackage{threeparttablex}
+- \usepackage[normalem]{ulem}
+- \usepackage{makecell}
+- \usepackage{amsmath}
+---
+
+
+## Computation Time Comparison
+
+To compare the computation time of the full likelihood, partitioned LLT, and Bayesian LLT we simulate data with two continuous predictors, 5 repeated measurements, and a sample size of 50, 100, 200, 250, 300, 500, 750, and 1000 subjects. Estimation is carried out 1000 times for each scenario and the computation time is tracked for the 3 different model estimation processes. For the partitioned LLT we set the group size equal to 50 i.e. for the sample size of 250, we will have 5 groups, each with size of 50. The partition of group size 50 was chosen as it showed the fastest computation time among other group sizes. The Bayesian LLT estimation used 2,000 Gibb's sampling iterations.
+
+### Computation Time Results
+
+The full likelihood LLT estimation procedure yields an exponential increase in computation time as the sample size increases. This is due to repeatedly inverting large matrices in the Kalman Filter and Kalman Smoother algorithm. Sample sizes greater than 250 resulted in estimation failures for the full likelihood, and for this reason we only show up to n = 250 in figure \@ref(fig:compTime).
+
+Both the partitioned LLT and the Bayesian LLT estimation procedures show a linear increase in computation time as the sample size increases. At the sample size of 50, the Bayesian LLT estimation has the longest median computation time (2.98 seconds) when compared to the full likelihood LLT (1.97 seconds) and the partitioned LLT (1.94 seconds). However, when compared to the other methods, the Bayesian LLT also has the lowest rate of change in computation time as the sample size increases. At the sample size of 150, the Bayesian method maintains faster computation time (5.02 seconds) than the full likelihood (13.77 seconds) and partitioned (5.57 seconds) LLTs. For each subsequent sample size, the Bayesian method outperforms the other methods.
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+library(tidyverse)
+```
+
+
+```{r}
+lf <- list.files("Simulations/ComputationSim4")
+names(lf) <- gsub(" .RDS", "", lf) %>%
+  gsub("CS ", "", .)
+tdat <- lf %>% 
+  map(~file.path("Simulations/ComputationSim4", .x)) %>%
+  map(readRDS) %>%
+  data.frame() %>%
+  gather("mi", "seconds") %>%
+  mutate(
+    sp = (str_split(mi, "[.]")),
+    method = map_chr(sp, 1),
+    n = map_chr(sp, 2) %>% as.integer()
+  ) %>%
+  select(method, n, seconds)
+```
+
+```{r compTime, fig.cap="Computation time comparison. As the sample size increases, the Bayesian estimation has the shortest computation time compared to the other estimation procedures.", fig.height=3.5}
+mymeth <- c("Full Likelihood", "Group Size 50", "Bayesian")
+names(mymeth) <- c("FL", "GS50", "Bayes")
+tdat %>%
+  group_by(method, n) %>%
+  summarise(seconds = median(seconds, na.rm = TRUE)) %>%
+  filter(n > 20) %>%
+  filter(method == "GS50" | method == "Bayes" | !(method == "FL" & n > 250)) %>%
+  mutate(method = factor(mymeth[method], levels = mymeth)) %>%
+  filter(!is.na(method)) %>%
+  ggplot(aes(x = n, y = seconds, color = method)) +
+  geom_point(aes(shape = method), size = 3) +
+  geom_line() +
+  xlab("Sample size") +
+  ylab("Median seconds") +
+  theme_classic()+
+  scale_color_manual(values = c("#DF3116",   "#DFB916", "#409247"))+
+  scale_shape_manual(values = c(10, 9, 8))
+```
+
+
+

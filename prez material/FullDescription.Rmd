@@ -1,0 +1,165 @@
+---
+title: "Project Description"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+
+
+## Motivation
+
+The model at the most basic level is,
+
+
+\begin{align}
+y_{t} &= \mu_{t} + \varepsilon_{t}\\
+\mu_{t} &= \mu_{t-1} + X\beta + \eta_{t}
+\end{align}
+
+
+Where,
+
+
+\begin{equation}
+y_{t} = 
+\begin{bmatrix} y_{1t} \\ \vdots \\ y_{nt} \end{bmatrix}, \
+\mu_{t} = 
+\begin{bmatrix} \mu_{1t} \\ \vdots \\ \mu_{nt} \end{bmatrix}, \
+X = 
+\begin{bmatrix} x_{11} & ... & x_{1p} \\ \vdots & \ddots & \vdots \\ x_{n1} & ... & x_{np}  \end{bmatrix}, \
+\beta = 
+\begin{bmatrix} \beta_1 \\ \vdots \\ \beta_p \end{bmatrix} \\
+\varepsilon_{t} = 
+\begin{bmatrix} \varepsilon_{1t} \\ \vdots \\ \varepsilon_{nt} \end{bmatrix} \sim N(0, \sigma^2_\varepsilon I_n), 
+\ \ \eta_{t} = 
+\begin{bmatrix} \eta_{1t} \\ \vdots \\ \eta_{nt} \end{bmatrix} \sim N(0, \sigma^2_\eta I_n) \\
+\begin{bmatrix}\mu_0\\ \beta\end{bmatrix} \sim N(\begin{bmatrix}u_0\\ B\end{bmatrix}, P_0)
+\end{equation}
+
+This model boils down to,
+
+
+\begin{align}
+y_{t} &= \mu_{0} + tX\beta + \sum^t_{k=1}\eta_k + \varepsilon_{t}
+\end{align}
+
+
+Note, if $\sigma^2_\eta = 0$ then this easily fits into a LMEM with only a random intercept. If $\sigma^2_\eta > 0$ then the LMEM is a mispecified model and will underestimate the variance of $y_t$, but the LMEM will still yield unbiased results.
+
+The state space model has been introduced to better model cognitive decline. Subjects suffering from cognitive decline can have long spells of "good" times and long spells "of bad times" which will add autocorrelation between a single subjects observations. The SS model accounts for these longer periods of highs and lows through essentially adding a random walk to what would would be the random intercept in the LMEM model.
+
+
+## Kalman Filter
+
+We can rewrite our model to fit the Kalman Filter framework,
+
+
+\begin{equation}
+\begin{aligned}
+y_t &= 
+Z_t
+\begin{bmatrix}
+\mu_t\\
+\beta
+\end{bmatrix}
++\varepsilon_t, & \varepsilon_t \sim N(0,H_t)\\
+\begin{bmatrix}
+\mu_t\\
+\beta
+\end{bmatrix}
+& = 
+T_t 
+\begin{bmatrix}
+\mu_{t-1}\\
+\beta
+\end{bmatrix}
++ R_t\eta_t, & \eta_t \sim N(0,Q_t)\\
+\end{aligned}
+\end{equation}
+
+
+
+Where,
+
+
+\begin{equation}
+Z_t = \begin{bmatrix}I_n & 0_{n\times p}\end{bmatrix}, \ H_t = \sigma^2_\varepsilon I_n\\
+T_t = \begin{bmatrix}I_n & X \\ 0_{p\times n} & I_p\end{bmatrix}, 
+\ R_t = I_{(n+p) \times (n+p)}, \
+Q_t = \sigma^2_\eta \begin{bmatrix}I_n & 0_{n \times p}\\ 0_{p \times n} & 0_{p \times p}\end{bmatrix}
+\end{equation}
+
+
+Next, we define
+
+
+\begin{equation}
+Y_t = [Y_1, ..., Y_{t-1}]\\
+a_t = E(\begin{bmatrix}\mu_t \\ \beta\end{bmatrix}|Y_{t-1})\\
+P_t = var(\begin{bmatrix}\mu_t \\ \beta\end{bmatrix}|Y_{t-1})
+\end{equation}
+
+
+Lastly, to run the Kalman Filter we compute the following in an iterative manner,
+
+\begin{equation}
+\begin{aligned}
+v_t &= y_t- Z_ta_t\\
+F_t &= Z_tP_tZ_t' + H_t\\
+K_t &= T_tP_tZ_t'F_t^{-1}\\
+L_t &= T_t-K_tZ_t\\
+a_{t+1} &= T_ta_t + K_tv_t\\
+P_{t+1} & = T_tP_tL_t' + R_tQ_tR_t'
+\end{aligned}
+\end{equation}
+
+After going through forward recursions, only one step of a backward recursion is needed to estimate $E(\beta|Y_t)$ and $var(\beta|Y_t)$. 
+
+## Estimation
+
+An issue with our model is we have unknown parameters $\begin{bmatrix}u_0\\ B\end{bmatrix}$, $P_0$, $\sigma^2_\varepsilon$, and $\sigma^2_\eta$. To overcome the issue of $\begin{bmatrix}u_0\\ B\end{bmatrix}$ and $P_0$ we can assume $P_0 = \infty \approx 10^8$ thus $\begin{bmatrix}\mu_0\\ \beta\end{bmatrix} \sim N(0, 10^8)$ as a diffuse prior. $P_i$ converges very quickly, even for a small number of subjects, therefore not knowing $P_0$ does not interfere much with variance estimation of the effect estimates $\beta$.
+
+
+To estimate $\sigma^2_\varepsilon$ and $\sigma^2_\eta$ we use Newton-Raphson. The log likelihood is calculated as,
+
+
+\begin{equation}
+\begin{aligned}
+L(\sigma^2_\varepsilon, \sigma^2_\eta|Y_t) &= P(Y_t|\sigma^2_\varepsilon, \sigma^2_\eta)\\
+&= P(y_t|Y_{t-1}, \sigma^2_\varepsilon, \sigma^2_\eta)P(y_{t-1}|Y_{t-2}, \sigma^2_\varepsilon, \sigma^2_\eta)...P(y_1|\sigma^2_\varepsilon, \sigma^2_\eta)\\
+l(\sigma^2_\varepsilon, \sigma^2_\eta|Y_t) & = \sum^t_{i=1} log(P(y_i|Y_{i-1},\sigma^2_\varepsilon, \sigma^2_\eta))
+\end{aligned}
+\end{equation}
+
+
+$y_0 \sim N(\mu_0, \sigma^2_\varepsilon+P_0)$ and every following $y_i$ is a linear combination of normals, thus each $y_i|Y_{i-1}$ is normal.  $E(y_i|Y_{i-1})$ is estimated as $\mu_i$ and $var(y_i|Y_{i-1}) = Z \ var(\begin{bmatrix}\mu_t\\ \beta\end{bmatrix}|Y_{i-1})Z' + \sigma^2_\varepsilon = Z P_tZ' + \sigma^2_\varepsilon = F_t$. Thus,
+
+
+\begin{equation}
+\begin{aligned}
+l(\sigma^2_\varepsilon, \sigma^2_\eta|Y_t) & = -\frac{np}{2}log(2\pi)-\frac{1}{2}\sum^t_{i=1}(log|F_i| + v'_iF_i^{-1}v_i)
+\end{aligned}
+\end{equation}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

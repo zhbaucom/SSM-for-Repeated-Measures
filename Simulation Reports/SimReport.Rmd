@@ -1,0 +1,974 @@
+---
+title: "Simulation Summary"
+output: html_document
+---
+
+```{r, include = FALSE}
+library(tidyverse)
+library(knitr)
+library(kableExtra)
+### Set working directory to correct location
+cdir <- stringr::str_split(getwd(), "/")[[1]]
+udir <- cdir[1:which(cdir == "State-Space-Methods")]
+setwd(paste(udir, collapse = "/"))
+
+fct_case_when <- function(...) {
+  args <- as.list(match.call())
+  levels <- sapply(args[-1], function(f) f[[3]])  # extract RHS of formula
+  levels <- levels[!is.na(levels)]
+  factor(dplyr::case_when(...), levels=levels)
+}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+flist <- list.files("Simulations/SimOutReform")
+flist <- flist[grepl("Itout", flist)]
+flist <- flist[c(3, 1, 2, 4, 6, 5, 7, 8)]
+B <- c(4, 2, -1)
+```
+
+
+
+
+```{r, results='asis'}
+find <- 1
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1") %>%
+  group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+  filter(!is.na(CI.Length)) %>%
+      group_by(Method) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, results='asis'}
+find <- 2
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  ))%>%
+  filter(Variable == "B1") %>%
+  filter(!is.na(CI.Length)) %>%
+      group_by(Method) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, results='asis'}
+find <- 3
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+  filter(!is.na(CI.Length)) %>%
+      group_by(Method) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+```{r, results='asis'}
+find <- 4
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+      group_by(Method)%>%
+  filter(!is.na(CI.Length))  %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, results='asis'}
+find <- 5
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+      group_by(Method) %>%
+  filter(!is.na(CI.Length)) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, results='asis'}
+find <- 6
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  ))%>%
+  filter(Variable == "B1") %>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() +
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+  filter(!is.na(CI.Length)) %>%
+      group_by(Method) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, results='asis'}
+find <-7
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  ))%>%
+  filter(Variable == "B1") %>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() +
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+  filter(!is.na(CI.Length)) %>%
+      group_by(Method) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+
+
+
+
+
+```{r, results='asis'}
+find <-8
+Itout <- readRDS(paste("Simulations/SimOutReform/",flist[find], sep = "")) 
+MedEst <- apply(Itout$Estimate, 1:2, median, na.rm = TRUE)
+MedBias <- MedEst - B
+VarEst <- apply(Itout$Estimate, 1:2, var, na.rm = TRUE)
+Coverage <- apply(Itout$UCL >= B & Itout$LCL <= B, 1:2, mean, na.rm = TRUE) 
+colnames(MedBias) <- colnames(VarEst) <- colnames(Coverage) <- c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10") 
+
+vvec <- flist[find] %>% 
+  gsub("Itout ", "", .) %>%
+  gsub(".RDS", "", .) %>%
+  str_split(" ") %>%
+  .[[1]] %>%
+  gsub("_", ".", .)
+
+
+```
+
+## $\sigma^2_\varepsilon =$ `r vvec[1]`, $\sigma^2_\eta =$ `r vvec[2]`
+
+### Coverage
+
+```{r}
+Coverage %>%
+  kable() %>% kable_styling()
+```
+
+
+### Bias Plot
+
+```{r, fig.height=7}
+Bias <- Itout$Estimate - B
+Var1Bias <- t(Bias[1,,])
+Var2Bias <- t(Bias[2,,])
+Var3Bias <- t(Bias[3,,])
+VarBias <- data.frame(rbind(Var1Bias, Var2Bias, Var3Bias))
+
+VarBias$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(VarBias) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+VarBias %>%
+  data.frame() %>%
+  gather("Method", "Bias", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  ))%>%
+  filter(Variable == "B1") %>%
+    group_by(Method) %>%
+  filter(Bias < quantile(Bias, .99) & Bias > quantile(Bias, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = Bias, fill = Method)) + 
+  geom_violin() +
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```
+
+### CI Length Plot
+
+```{r, fig.height=7}
+CIlen <- Itout$UCL -Itout$LCL
+CIlen1 <- t(CIlen[1,,])
+CIlen2 <- t(CIlen[2,,])
+CIlen3 <- t(CIlen[3,,])
+CIlenTot <- data.frame(rbind(CIlen1, CIlen2, CIlen3))
+
+CIlenTot$Variable <- sort(rep(paste("B", 1:3, sep = ""), dim(Bias)[3]))
+
+
+
+colnames(CIlenTot) <-  c("LME", "LME AR(1)", "SS Orig", "SS Bayes", "SS Part 2", "SS Part 4", "SS Part 10",  "Variable") 
+
+CIlenTot %>%
+  data.frame() %>%
+  gather("Method", "CI.Length", `LME`:`SS.Part.10`) %>%
+  mutate(Method = fct_case_when(
+    Method == "LME" ~ "LME",
+    Method == "LME.AR.1." ~ "LME AR(1)",
+    Method == "SS.Orig" ~ "SS Original",
+    Method == "SS.Bayes" ~ "SS Bayes",
+    Method == "SS.Part.2" ~ "SS Partition k = 2",
+    Method == "SS.Part.4" ~ "SS Partition k = 4",
+    Method == "SS.Part.10" ~ "SS Partition k = 10"
+  )) %>%
+  filter(Variable == "B1")%>%
+  filter(!is.na(CI.Length)) %>%
+    group_by(Method) %>%
+  filter(CI.Length < quantile(CI.Length, .99) & CI.Length > quantile(CI.Length, .01)) %>%
+  ungroup(Method) %>%
+  ggplot(aes(x = Method, y = CI.Length, fill = Method)) + 
+  geom_violin() + 
+  stat_summary(fun=median, geom="point", shape=18, size=5) +
+  facet_grid(Variable ~ .) +
+  theme(axis.text.x = element_text(angle = -45, vjust = .99, hjust = 0), legend.position = "none")
+```

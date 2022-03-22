@@ -1,0 +1,147 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%  JASA LaTeX Template File
+%  To make articles using JASA.cls, Version 1.1
+%  September 14, 2019
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%% Step 1:
+%% Uncomment the style that you want to use:
+
+%%%%%%% For Preprint
+%% For manuscript, 12pt, one column style
+
+\documentclass[preprint]{JASA}
+
+%%%%% Preprint Options %%%%%
+%% The track changes option allows you to mark changes
+%% and will produce a list of changes, their line number
+%% and page number at the end of the article.
+%\documentclass[preprint,trackchanges]{JASA}
+
+
+%% NumberedRefs is used for numbered bibliography and citations.
+%% Default is Author-Year style.
+%% \documentclass[preprint,NumberedRefs]{JASA}
+
+%%%%%%% For Reprint
+%% For appearance of finished article; 2 columns, 10 pt fonts
+
+% \documentclass[reprint]{JASA}
+
+%%%%% Reprint Options %%%%%
+
+%% For testing to see if author has exceeded page length request, use 12pt option
+%\documentclass[reprint,12pt]{JASA}
+
+
+%% NumberedRefs is used for numbered bibliography and citations.
+%% Default is Author-Year style.
+% \documentclass[reprint,NumberedRefs]{JASA}
+
+%% TurnOnLineNumbers
+%% Make lines be numbered in reprint style:
+% \documentclass[reprint,TurnOnLineNumbers]{JASA}
+
+\usepackage{natbib}
+
+
+% Pandoc syntax highlighting
+
+% Pandoc citation processing
+
+
+
+\begin{document}
+%% the square bracket argument will send term to running head in
+%% preprint, or running foot in reprint style.
+
+\title[A subtitle goes on another line]{This is a title and this is too}
+
+% ie
+%\title[JASA/Sample JASA Article]{Sample JASA Article}
+
+%% repeat as needed
+
+\author{Author's name}
+% ie
+%\affiliation{Department1,  University1, City, State ZipCode, Country}
+\affiliation{Author's affiliation}
+%% for corresponding author
+\email{e-mail@uni.edu}
+%% for additional information
+\thanks{other info}
+\author{Second author's name}
+% ie
+%\affiliation{Department1,  University1, City, State ZipCode, Country}
+\affiliation{Second author's affiliation}
+%% for corresponding author
+
+%% for additional information
+
+
+% ie
+% \author{Author Four}
+% \email{author.four@university.edu}
+% \thanks{Also at Another University, City, State ZipCode, Country.}
+
+%% For preprint only,
+%  optional, if you want want this message to appear in upper left corner of title page
+\preprint{Author-name, JASA}
+
+%ie
+%\preprint{Author, JASA}
+
+% optional, if desired:
+%\date{\today}
+\date{\today}
+
+\begin{abstract}
+% Put your abstract here. Abstracts are limited to 200 words for
+% regular articles and 100 words for Letters to the Editor. Please no
+% personal pronouns, also please do not use the words ``new'' and/or
+% ``novel'' in the abstract. An article usually includes an abstract, a
+% concise summary of the work covered at length in the main body of the
+% article.
+Put your abstract here. Abstracts are limited to 200 words for regular
+articles and 100 words for Letters to the Editor. Please no personal
+pronouns, also please do not use the words
+\texttt{new\textquotesingle{}\textquotesingle{}\ and/or}novel'\,' in the
+abstract. An article usually includes an abstract, a concise summary of
+the work covered at length in the main body of the article.
+\end{abstract}
+
+%% pacs numbers not used
+
+\maketitle
+
+%  End of title page for Preprint option --------------------------------- %
+
+%% See preprint.tex/.pdf or reprint.tex/.pdf for many examples
+
+
+%  Body of the article
+
+
+% -------------------------------------------------------------------------------------------------------------------
+%   Appendix  (optional)
+
+%\appendix
+%\section{Appendix title}
+
+%If only one appendix, please use
+%\appendix*
+%\section{Appendix title}
+
+
+%=======================================================
+
+%Use \bibliography{<name of your .bib file>}+
+%to make your bibliography with BibTeX.
+
+%=======================================================
+
+\renewcommand\refname{Model Validation}
+\bibliography{bibliography.bib}
+
+
+\end{document}
