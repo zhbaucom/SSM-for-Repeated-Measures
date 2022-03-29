@@ -9,24 +9,7 @@ enough to obtain interpretable linear effects of interest, yet flexible
 enough to accurately fit longitudinal neuropsychological data. We
 propose the use of a specific State Space Model (SSM), the Local Linear
 Trend Model (LLT), to accomplish this task. This model is meant as a
-suitable replacement for commonly used mixed effect models.
-
-The proposed model has the form:
-
-Where *α*<sub>0</sub> ∼ *N*(*a*<sub>0</sub>, *P*<sub>0</sub>),
-*ε*<sub>*i**j*</sub> ∼ *N*(0, *σ*<sub>*ε*</sub><sup>2</sup>), and
-*η*<sub>*i**j*</sub> ∼ *N*(0, *δ*<sub>*i**j*</sub>*σ*<sub>*η*</sub><sup>2</sup>).
-
--   *y*<sub>*i**j*</sub> is the observation forthe *i*<sup>*t**h*</sup>
-    subject’s *j*<sup>*t**h*</sup> observation.
--   *α*<sub>*i**j*</sub> is the latent cognition process unaccounted for
-    by the predictors *X*<sub>*i**j*</sub>.
-    -   Follows a random walk process through time.
-    -   Variation in *α*<sub>*i**j*</sub> over time creates a dynamic
-        moving average auto-correlation between observations
-        *y*<sub>*i**j*</sub>.
--   *x*<sub>*i**j*</sub> is a set of time varying covariates.
--   *β* is the linear effect of the predictors in *x*<sub>*i**j*</sub>.
+suitable replacement for commonly used mixed effect models. See 'Paper' folder for model description.
 
 This model allows for the ability to capture the linear effects *β*
 while also allowing for subject specific random variation in the *α*.
